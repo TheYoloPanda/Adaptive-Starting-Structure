@@ -1,0 +1,167 @@
+package com.typ.adaptivestartingstructure.planner;
+
+import com.typ.adaptivestartingstructure.config.ConfigSnapshot;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Registry;
+import net.minecraft.core.QuartPos;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.levelgen.Heightmap;
+
+public final class PlannerQueryContext {
+    private final PlannerWorldQuerySource source;
+    private final BiomeClassifier biomeClassifier;
+    private final int maximumQueries;
+    private final BlockPos suggestedSpawnOrigin;
+    private final int minBuildHeight;
+    private final int maxBuildHeight;
+    private final Map<HeightQuery, Integer> heightCache = new HashMap<>();
+    private final Map<ColumnQuery, TerrainColumn> columnCache = new HashMap<>();
+    private final Map<BiomeQuery, BiomeSample> biomeCache = new HashMap<>();
+    private int queriesUsed;
+
+    public PlannerQueryContext(
+            PlannerWorldQuerySource source,
+            BiomeClassifier biomeClassifier,
+            int maximumQueries) {
+        this.source = Objects.requireNonNull(source, "source");
+        this.biomeClassifier = Objects.requireNonNull(biomeClassifier, "biomeClassifier");
+        if (maximumQueries <= 0) {
+            throw new IllegalArgumentException("maximumQueries must be positive");
+        }
+        this.maximumQueries = maximumQueries;
+        this.minBuildHeight = source.minBuildHeight();
+        this.maxBuildHeight = source.maxBuildHeight();
+        if (maxBuildHeight <= minBuildHeight) {
+            throw new IllegalArgumentException(
+                    "World build-height range must be positive");
+        }
+        consumeQuery("suggested spawn origin");
+        this.suggestedSpawnOrigin = Objects.requireNonNull(
+                        source.suggestedSpawnOrigin(),
+                        "suggestedSpawnOrigin")
+                .immutable();
+    }
+
+    public static PlannerQueryContext create(ServerLevel level, ConfigSnapshot config) {
+        Objects.requireNonNull(level, "level");
+        Objects.requireNonNull(config, "config");
+        Registry<Biome> biomeRegistry =
+                level.registryAccess().registryOrThrow(Registries.BIOME);
+        return new PlannerQueryContext(
+                GeneratorPlannerQuerySource.from(level),
+                BiomeClassifier.resolve(config, biomeRegistry),
+                config.maximumGeneratorQueries());
+    }
+
+    public BlockPos suggestedSpawnOrigin() {
+        return suggestedSpawnOrigin;
+    }
+
+    public int baseHeight(int x, int z, Heightmap.Types heightmapType) {
+        Objects.requireNonNull(heightmapType, "heightmapType");
+        HeightQuery key = new HeightQuery(x, z, heightmapType);
+        Integer cached = heightCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        consumeQuery("base height at [" + x + ", " + z + "] using " + heightmapType);
+        int height = source.baseHeight(x, z, heightmapType);
+        heightCache.put(key, height);
+        return height;
+    }
+
+    public TerrainColumn baseColumn(int x, int z) {
+        ColumnQuery key = new ColumnQuery(x, z);
+        TerrainColumn cached = columnCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        consumeQuery("base column at [" + x + ", " + z + "]");
+        TerrainColumn column = Objects.requireNonNull(
+                source.baseColumn(x, z),
+                "baseColumn");
+        columnCache.put(key, column);
+        return column;
+    }
+
+    public BiomeSample biomeAt(int blockX, int blockY, int blockZ) {
+        BiomeQuery key = new BiomeQuery(
+                QuartPos.fromBlock(blockX),
+                QuartPos.fromBlock(blockY),
+                QuartPos.fromBlock(blockZ));
+        BiomeSample cached = biomeCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        consumeQuery("noise biome at quart ["
+                + key.quartX + ", " + key.quartY + ", " + key.quartZ + "]");
+        BiomeSample biome = Objects.requireNonNull(
+                source.biomeAtQuart(key.quartX, key.quartY, key.quartZ),
+                "biomeAtQuart");
+        biomeCache.put(key, biome);
+        return biome;
+    }
+
+    public BiomeClassifier.Classification classifyBiomeAt(
+            int blockX,
+            int blockY,
+            int blockZ) {
+        return biomeClassifier.classify(biomeAt(blockX, blockY, blockZ));
+    }
+
+    public boolean isWithinWorldBorder(int x, int z) {
+        return source.isWithinWorldBorder(x, z);
+    }
+
+    public int minBuildHeight() {
+        return minBuildHeight;
+    }
+
+    public int maxBuildHeight() {
+        return maxBuildHeight;
+    }
+
+    public int maximumQueries() {
+        return maximumQueries;
+    }
+
+    public int queriesUsed() {
+        return queriesUsed;
+    }
+
+    public int heightCacheSize() {
+        return heightCache.size();
+    }
+
+    public int columnCacheSize() {
+        return columnCache.size();
+    }
+
+    public int biomeCacheSize() {
+        return biomeCache.size();
+    }
+
+    private void consumeQuery(String attemptedQuery) {
+        if (queriesUsed >= maximumQueries) {
+            throw new GeneratorQueryBudgetExceededException(
+                    maximumQueries,
+                    queriesUsed,
+                    attemptedQuery);
+        }
+        queriesUsed++;
+    }
+
+    private record HeightQuery(int x, int z, Heightmap.Types heightmapType) {
+    }
+
+    private record ColumnQuery(int x, int z) {
+    }
+
+    private record BiomeQuery(int quartX, int quartY, int quartZ) {
+    }
+}

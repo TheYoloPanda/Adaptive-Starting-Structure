@@ -1,0 +1,13 @@
+package com.typ.adaptivestartingstructure.planner;
+
+public enum SpawnRejectionReason {
+    AREA_OUTSIDE_STRUCTURE_BOUNDS,
+    SPAWN_HEIGHT_OUTSIDE_BUILD_LIMITS,
+    INVALID_FEET_POSITION,
+    INSUFFICIENT_VERTICAL_SPACE,
+    NON_SOLID_FLOOR,
+    FLUID_PRESENT,
+    PLAYER_COLLISION,
+    DANGEROUS_BLOCK,
+    DANGEROUS_FALL
+}

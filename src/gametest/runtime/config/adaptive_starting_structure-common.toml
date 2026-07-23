@@ -1,0 +1,72 @@
+#Whether starting structure planning and placement are enabled.
+enabled = true
+#Preferred search radius in blocks around the theoretical spawn.
+# Default: 1024
+# Range: 0 ~ 30000000
+preferredSearchRadius = 0
+#Maximum search radius in blocks around the theoretical spawn.
+# Default: 4096
+# Range: 0 ~ 30000000
+maximumSearchRadius = 0
+#Candidate spacing in blocks inside the preferred search radius.
+# Default: 64
+# Range: 1 ~ 30000000
+nearCandidateSpacing = 1
+#Candidate spacing in blocks outside the preferred search radius.
+# Default: 128
+# Range: 1 ~ 30000000
+farCandidateSpacing = 1
+#Maximum number of candidates considered by the coarse search.
+# Default: 4096
+# Range: > 1
+maximumCoarseCandidates = 1
+#Number of top coarse candidates evaluated by the fine search.
+# Default: 32
+# Range: > 1
+fineCandidateCount = 1
+#Sampling step in blocks during fine evaluation.
+# Default: 4
+# Range: 1 ~ 30000000
+fineSampleStep = 1
+#Maximum generator queries allowed for one planning operation.
+# Default: 150000
+# Range: > 1
+maximumGeneratorQueries = 5000
+#Terrain blend width in blocks outside the structure footprint.
+# Default: 24
+# Range: 1 ~ 30000000
+blendWidth = 24
+#Maximum number of blocks that terrain may be cut.
+# Default: 8
+# Range: 0 ~ 30000000
+maximumCutDepth = 8
+#Maximum number of blocks that terrain may be filled.
+# Default: 8
+# Range: 0 ~ 30000000
+maximumFillDepth = 8
+#Maximum elevation range allowed across the evaluated site.
+# Default: 12
+# Range: 0 ~ 30000000
+maximumElevationRange = 12
+#Maximum elevation error allowed at the blended perimeter.
+# Default: 4
+# Range: 0 ~ 30000000
+maximumPerimeterError = 4
+#Maximum fraction of sampled columns that may contain water.
+# Default: 0.05
+# Range: 0.0 ~ 1.0
+maximumWaterFraction = 0.05
+#Whether entities stored in the structure template are placed.
+placeTemplateEntities = false
+#Whether non-preferred land biomes may be accepted with lower priority.
+allowUnlistedLandBiomes = true
+#Biome tags excluded from site selection.
+excludedBiomeTags = ["minecraft:is_ocean", "minecraft:is_river", "minecraft:is_beach", "minecraft:is_mountain"]
+#Horizontal rotations that may be selected for the structure.
+allowedRotations = ["none"]
+#Additional biome IDs treated as preferred.
+additionalPreferredBiomes = []
+#Additional biome IDs excluded from site selection.
+additionalExcludedBiomes = []
+#Additional biome tag IDs excluded from site selection.
+additionalExcludedBiomeTags = []
