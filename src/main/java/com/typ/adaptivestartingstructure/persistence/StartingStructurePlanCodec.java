@@ -1,5 +1,6 @@
 package com.typ.adaptivestartingstructure.persistence;
 
+import com.typ.adaptivestartingstructure.config.PlacementSettings;
 import com.typ.adaptivestartingstructure.planner.BiomeClassifier;
 import com.typ.adaptivestartingstructure.planner.CoarseRejectionReason;
 import com.typ.adaptivestartingstructure.planner.FineCandidateMetrics;
@@ -13,6 +14,7 @@ import java.util.EnumMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -26,6 +28,17 @@ final class StartingStructurePlanCodec {
     private static final String CANDIDATE = "Candidate";
     private static final String ALTERNATIVE_CANDIDATES = "AlternativeCandidates";
     private static final String DIAGNOSTICS = "Diagnostics";
+    private static final String PLACEMENT_SETTINGS = "PlacementSettings";
+    private static final String BLEND_WIDTH = "BlendWidth";
+    private static final String MAXIMUM_CUT_DEPTH = "MaximumCutDepth";
+    private static final String MAXIMUM_FILL_DEPTH = "MaximumFillDepth";
+    private static final String MAXIMUM_ELEVATION_RANGE =
+            "MaximumElevationRange";
+    private static final String MAXIMUM_PERIMETER_ERROR =
+            "MaximumPerimeterError";
+    private static final String MAXIMUM_WATER_FRACTION =
+            "MaximumWaterFraction";
+    private static final String ALLOWED_ROTATIONS = "AllowedRotations";
 
     private StartingStructurePlanCodec() {
     }
@@ -44,7 +57,80 @@ final class StartingStructurePlanCodec {
                 .forEach(alternatives::add);
         tag.put(ALTERNATIVE_CANDIDATES, alternatives);
         tag.put(DIAGNOSTICS, encodeDiagnostics(plan.diagnostics()));
+        plan.placementSettings().ifPresent(settings ->
+                tag.put(
+                        PLACEMENT_SETTINGS,
+                        encodePlacementSettings(settings)));
         return tag;
+    }
+
+    private static CompoundTag encodePlacementSettings(
+            PlacementSettings settings) {
+        CompoundTag tag = new CompoundTag();
+        tag.putInt(BLEND_WIDTH, settings.blendWidth());
+        tag.putInt(MAXIMUM_CUT_DEPTH, settings.maximumCutDepth());
+        tag.putInt(MAXIMUM_FILL_DEPTH, settings.maximumFillDepth());
+        tag.putInt(
+                MAXIMUM_ELEVATION_RANGE,
+                settings.maximumElevationRange());
+        tag.putInt(
+                MAXIMUM_PERIMETER_ERROR,
+                settings.maximumPerimeterError());
+        tag.putDouble(
+                MAXIMUM_WATER_FRACTION,
+                settings.maximumWaterFraction());
+        ListTag rotations = new ListTag();
+        settings.allowedRotations().stream()
+                .map(rotation -> net.minecraft.nbt.StringTag.valueOf(
+                        rotation.name()))
+                .forEach(rotations::add);
+        tag.put(ALLOWED_ROTATIONS, rotations);
+        return tag;
+    }
+
+    private static Optional<PlacementSettings> decodePlacementSettings(
+            CompoundTag tag) {
+        if (!tag.contains(PLACEMENT_SETTINGS)) {
+            return Optional.empty();
+        }
+        CompoundTag settings =
+                requireCompound(tag, PLACEMENT_SETTINGS, "Plan");
+        requireType(
+                settings,
+                ALLOWED_ROTATIONS,
+                Tag.TAG_LIST,
+                "Plan.PlacementSettings");
+        ListTag encoded = (ListTag) settings.get(ALLOWED_ROTATIONS);
+        List<Rotation> rotations = new ArrayList<>(encoded.size());
+        for (int index = 0; index < encoded.size(); index++) {
+            rotations.add(requireEnum(
+                    Rotation.class,
+                    encoded.getString(index),
+                    "Plan.PlacementSettings.AllowedRotations"));
+        }
+        return Optional.of(new PlacementSettings(
+                requireInt(settings, BLEND_WIDTH, "Plan.PlacementSettings"),
+                requireInt(
+                        settings,
+                        MAXIMUM_CUT_DEPTH,
+                        "Plan.PlacementSettings"),
+                requireInt(
+                        settings,
+                        MAXIMUM_FILL_DEPTH,
+                        "Plan.PlacementSettings"),
+                requireInt(
+                        settings,
+                        MAXIMUM_ELEVATION_RANGE,
+                        "Plan.PlacementSettings"),
+                requireInt(
+                        settings,
+                        MAXIMUM_PERIMETER_ERROR,
+                        "Plan.PlacementSettings"),
+                requireFiniteDouble(
+                        settings,
+                        MAXIMUM_WATER_FRACTION,
+                        "Plan.PlacementSettings"),
+                rotations));
     }
 
     static StartingStructurePlan decode(CompoundTag tag) {
@@ -55,7 +141,8 @@ final class StartingStructurePlanCodec {
                     requireInt(tag, SELECTION_ALGORITHM_VERSION, "Plan"),
                     decodeCandidate(requireCompound(tag, CANDIDATE, "Plan")),
                     decodeAlternativeCandidates(tag),
-                    decodeDiagnostics(requireCompound(tag, DIAGNOSTICS, "Plan")));
+                    decodeDiagnostics(requireCompound(tag, DIAGNOSTICS, "Plan")),
+                    decodePlacementSettings(tag));
         } catch (StartingStructureDataException exception) {
             throw exception;
         } catch (IllegalArgumentException exception) {
@@ -76,9 +163,15 @@ final class StartingStructurePlanCodec {
                 ALTERNATIVE_CANDIDATES,
                 Tag.TAG_LIST,
                 "Plan");
-        ListTag encoded = tag.getList(
-                ALTERNATIVE_CANDIDATES,
-                Tag.TAG_COMPOUND);
+        ListTag encoded =
+                (ListTag) tag.get(ALTERNATIVE_CANDIDATES);
+        if (!encoded.isEmpty()
+                && encoded.getElementType()
+                        != Tag.TAG_COMPOUND) {
+            throw invalid(
+                    "Plan." + ALTERNATIVE_CANDIDATES,
+                    "must contain only compound entries");
+        }
         List<SiteCandidate> candidates =
                 new ArrayList<>(encoded.size());
         for (int index = 0; index < encoded.size(); index++) {

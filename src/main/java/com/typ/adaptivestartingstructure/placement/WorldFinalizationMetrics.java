@@ -15,7 +15,13 @@ public record WorldFinalizationMetrics(
         int neighborUpdates,
         int comparatorUpdates,
         int fluidTicks,
-        int spawnColumnsChecked) {
+        int spawnColumnsChecked,
+        int sourceEntities,
+        int plannedEntities,
+        int skippedByDisabledOption,
+        int skippedUnsupportedEntities,
+        int materializedEntities,
+        int addedEntities) {
 
     public WorldFinalizationMetrics {
         if (preparedChunks <= 0
@@ -37,7 +43,29 @@ public record WorldFinalizationMetrics(
                 || neighborUpdates < 0
                 || comparatorUpdates != blockEntityLoads
                 || fluidTicks < 0
-                || spawnColumnsChecked <= 0) {
+                || spawnColumnsChecked <= 0
+                || sourceEntities < 0
+                || plannedEntities < 0
+                || skippedByDisabledOption < 0
+                || skippedUnsupportedEntities < 0
+                || materializedEntities < 0
+                || addedEntities < 0
+                || sourceEntities
+                        != Math.addExact(
+                                plannedEntities,
+                                Math.addExact(
+                                        skippedByDisabledOption,
+                                        skippedUnsupportedEntities))
+                || materializedEntities
+                        != plannedEntities
+                || addedEntities
+                        != materializedEntities
+                || skippedByDisabledOption > 0
+                        && (plannedEntities != 0
+                                || skippedUnsupportedEntities
+                                        != 0
+                                || skippedByDisabledOption
+                                        != sourceEntities)) {
             throw new IllegalArgumentException(
                     "World-finalization metrics are inconsistent");
         }

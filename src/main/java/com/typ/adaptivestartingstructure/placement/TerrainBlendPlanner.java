@@ -68,6 +68,15 @@ final class TerrainBlendPlanner {
             throw new IllegalArgumentException(
                     "Leveling result and plan use different snapshots");
         }
+        PlacementBounds interventionBounds =
+                PlacementBounds.calculate(
+                        structure,
+                        placementOrigin,
+                        config.blendWidth());
+        if (!snapshot.bounds().contains(interventionBounds)) {
+            throw new IllegalArgumentException(
+                    "Terrain snapshot does not contain placement intervention bounds");
+        }
         FootprintDistanceIndex distances =
                 FootprintDistanceIndex.create(
                         structure,
@@ -107,10 +116,15 @@ final class TerrainBlendPlanner {
             int signedError = column.groundY() - targetY;
             if (signedError > config.maximumCutDepth()
                     || -signedError > config.maximumFillDepth()) {
-                throw new PlacementPreparationException(
-                        "Blended terrain exceeds cut/fill limits at ["
-                                + column.x() + ", "
-                                + column.z() + "]");
+                throw UnsuitableGeneratedSiteException
+                        .cutFillThresholdExceeded(
+                                "Generated blend",
+                                column.x(),
+                                column.z(),
+                                column.groundY(),
+                                targetY,
+                                config.maximumCutDepth(),
+                                config.maximumFillDepth());
             }
             if (target.modifiesHeight()) {
                 planTerrainColumn(
@@ -184,6 +198,7 @@ final class TerrainBlendPlanner {
                 fluidRelevantWrites);
         return new TerrainBlendPlan(
                 snapshot,
+                interventionBounds,
                 targets,
                 ordered,
                 fluidUpdates,

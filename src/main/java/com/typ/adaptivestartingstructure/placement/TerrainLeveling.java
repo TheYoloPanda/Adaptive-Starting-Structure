@@ -52,7 +52,7 @@ public final class TerrainLeveling {
         }
         if (!planned.snapshot()
                 .bounds()
-                .equals(prepared.bounds())) {
+                .equals(prepared.treeObservationBounds())) {
             throw new PlacementPreparationException(
                     "Prepared terrain leveling does not match placement bounds");
         }
@@ -71,7 +71,7 @@ public final class TerrainLeveling {
         ServerLevel level = prepared.level();
         TerrainSnapshot snapshot = TerrainSnapshotCapture.capture(
                 level,
-                prepared.bounds(),
+                prepared.treeObservationBounds(),
                 prepared.savedData()
                         .plan()
                         .candidate()

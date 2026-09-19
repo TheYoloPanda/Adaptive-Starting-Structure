@@ -45,12 +45,50 @@ final class TemplatePlacementPlanner {
     private TemplatePlacementPlanner() {
     }
 
+    static void validateBlockEntities(
+            StartingStructurePlan savedPlan,
+            StructureDefinition definition,
+            RotatedStructureView structure) {
+        int paletteIndex = TemplatePlacementSeeds.paletteIndex(
+                savedPlan,
+                definition.paletteCount());
+        BlockPos origin =
+                savedPlan.candidate().placementOrigin();
+        for (StructureElement element
+                : structure.placementElements()) {
+            CompoundTag nbt = element.blockEntityNbt()
+                    .orElse(null);
+            if (nbt == null) {
+                continue;
+            }
+            BlockPos position = offsetExact(
+                    origin,
+                    element.position());
+            if (element.kind()
+                    != StructureElement.Kind.BLOCK) {
+                throw new PlacementPreparationException(
+                        "Explicit air contains BlockEntity NBT at "
+                                + position);
+            }
+            prepareBlockEntity(
+                    savedPlan,
+                    position,
+                    element.stateForPalette(paletteIndex),
+                    paletteIndex,
+                    nbt);
+        }
+    }
+
     static TemplatePlacementPlan plan(
             BlockStateReader world,
             StartingStructurePlan savedPlan,
             StructureDefinition definition,
             RotatedStructureView structure,
             PlacementBounds bounds) {
+        validateBlockEntities(
+                savedPlan,
+                definition,
+                structure);
         int paletteIndex = TemplatePlacementSeeds.paletteIndex(
                 savedPlan,
                 definition.paletteCount());
@@ -151,7 +189,6 @@ final class TemplatePlacementPlanner {
                 definition.paletteCount(),
                 definition.blockCount(),
                 definition.explicitAirCount(),
-                definition.entityCount(),
                 ordered,
                 blockEntities,
                 orderedUpdates,

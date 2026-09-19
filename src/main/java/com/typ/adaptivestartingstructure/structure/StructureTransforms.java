@@ -6,6 +6,7 @@ import net.minecraft.core.Vec3i;
 import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
+import net.minecraft.world.phys.Vec3;
 
 public final class StructureTransforms {
     private StructureTransforms() {
@@ -27,6 +28,31 @@ public final class StructureTransforms {
                 sourceSize.getX(),
                 sourceSize.getZ());
         return transformed.offset(zeroOffset).immutable();
+    }
+
+    public static Vec3 transform(
+            Vec3 position,
+            Vec3i sourceSize,
+            Rotation rotation) {
+        Objects.requireNonNull(position, "position");
+        Objects.requireNonNull(sourceSize, "sourceSize");
+        Objects.requireNonNull(rotation, "rotation");
+        Vec3 transformed = StructureTemplate.transform(
+                position,
+                Mirror.NONE,
+                rotation,
+                BlockPos.ZERO);
+        BlockPos zeroOffset =
+                StructureTemplate.getZeroPositionWithTransform(
+                        BlockPos.ZERO,
+                        Mirror.NONE,
+                        rotation,
+                        sourceSize.getX(),
+                        sourceSize.getZ());
+        return transformed.add(
+                zeroOffset.getX(),
+                zeroOffset.getY(),
+                zeroOffset.getZ());
     }
 
     public static Vec3i transformedSize(Vec3i sourceSize, Rotation rotation) {

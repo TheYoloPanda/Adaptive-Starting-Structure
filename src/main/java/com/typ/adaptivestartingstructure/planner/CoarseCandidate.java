@@ -7,7 +7,6 @@ import net.minecraft.world.level.block.Rotation;
 public record CoarseCandidate(
         int centerX,
         int centerZ,
-        int ringRadius,
         SearchBand searchBand,
         RotatedStructureView structure,
         int minimumX,
@@ -18,9 +17,6 @@ public record CoarseCandidate(
         CoarseCandidateMetrics metrics) {
 
     public CoarseCandidate {
-        if (ringRadius < 0) {
-            throw new IllegalArgumentException("ringRadius must be non-negative");
-        }
         searchBand = Objects.requireNonNull(searchBand, "searchBand");
         structure = Objects.requireNonNull(structure, "structure");
         metrics = Objects.requireNonNull(metrics, "metrics");
@@ -43,6 +39,11 @@ public record CoarseCandidate(
 
     public Rotation rotation() {
         return structure.rotation();
+    }
+
+    /** Distance from the vanilla spawn, for diagnostics and messages. */
+    public int distanceFromOrigin() {
+        return (int) Math.sqrt((double) distanceSquared);
     }
 
     public enum SearchBand {

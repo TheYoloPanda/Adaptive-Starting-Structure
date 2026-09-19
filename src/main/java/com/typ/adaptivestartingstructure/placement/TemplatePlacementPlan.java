@@ -17,7 +17,6 @@ public final class TemplatePlacementPlan {
     private final int paletteCount;
     private final int templateBlocks;
     private final int explicitAir;
-    private final int ignoredEntities;
     private final Map<ChunkPos, List<TemplateBlockWrite>> writesByChunk;
     private final List<TemplateBlockWrite> writes;
     private final List<TemplateBlockEntityData> blockEntities;
@@ -29,7 +28,6 @@ public final class TemplatePlacementPlan {
             int paletteCount,
             int templateBlocks,
             int explicitAir,
-            int ignoredEntities,
             Map<ChunkPos, List<TemplateBlockWrite>> writesByChunk,
             List<TemplateBlockEntityData> blockEntities,
             Set<BlockPos> finalUpdatePositions,
@@ -39,8 +37,7 @@ public final class TemplatePlacementPlan {
                 || paletteIndex < 0
                 || paletteIndex >= paletteCount
                 || templateBlocks < 0
-                || explicitAir < 0
-                || ignoredEntities < 0) {
+                || explicitAir < 0) {
             throw new IllegalArgumentException(
                     "Template placement counts or palette are invalid");
         }
@@ -48,7 +45,6 @@ public final class TemplatePlacementPlan {
         this.paletteCount = paletteCount;
         this.templateBlocks = templateBlocks;
         this.explicitAir = explicitAir;
-        this.ignoredEntities = ignoredEntities;
         this.blockEntities = List.copyOf(blockEntities);
         this.finalUpdatePositions =
                 immutablePositions(finalUpdatePositions);
@@ -121,10 +117,6 @@ public final class TemplatePlacementPlan {
 
     public int explicitAir() {
         return explicitAir;
-    }
-
-    public int ignoredEntities() {
-        return ignoredEntities;
     }
 
     public Map<ChunkPos, List<TemplateBlockWrite>> writesByChunk() {

@@ -23,7 +23,7 @@ sourceSets.main.resources {
 
     // Exclude common development only resources from finalized outputs
     exclude("**/*.bbmodel") // BlockBench project files
-    exclude("src/generated/**/.cache") // datagen cache files
+    exclude("**/.cache", "**/.cache/**") // datagen cache files
 }
 
 repositories {
@@ -227,7 +227,7 @@ publishing {
     }
     repositories {
         maven {
-            url "file://${project.projectDir}/repo"
+            url = layout.projectDirectory.dir('repo')
         }
     }
 }
@@ -239,6 +239,11 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.named('test', Test).configure {
     useJUnitPlatform()
+    systemProperty(
+            'adaptiveStartingStructure.projectDir',
+            layout.projectDirectory.asFile.absolutePath)
+    inputs.dir(layout.projectDirectory.dir(
+            'src/main/java/com/typ/adaptivestartingstructure/client'))
 }
 
 tasks.named('check').configure {
@@ -271,12 +276,13 @@ def verifyReleaseJar = tasks.register('verifyReleaseJar') {
             def forbiddenEntries = entryNames.findAll { entryName ->
                 def normalized = entryName.toLowerCase(Locale.ROOT)
                 normalized.contains('gametest')
-                        || normalized.contains('/client/')
                         || normalized.contains('/command/')
-                        || normalized.contains('/gui/')
                         || normalized.contains('mixin')
                         || normalized.contains('converter')
                         || normalized.contains('example')
+                        || normalized == '.cache'
+                        || normalized.startsWith('.cache/')
+                        || normalized.contains('/.cache/')
                         || normalized.endsWith('.nbt')
                         || normalized.endsWith('.snbt')
                         || normalized.endsWith('.base64')

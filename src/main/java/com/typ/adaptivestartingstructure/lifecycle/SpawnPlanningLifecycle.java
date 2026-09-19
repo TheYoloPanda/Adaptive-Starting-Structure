@@ -3,6 +3,7 @@ package com.typ.adaptivestartingstructure.lifecycle;
 import com.typ.adaptivestartingstructure.AdaptiveStartingStructure;
 import com.typ.adaptivestartingstructure.config.ConfigSnapshot;
 import com.typ.adaptivestartingstructure.config.ModConfig;
+import com.typ.adaptivestartingstructure.config.PlacementSettings;
 import com.typ.adaptivestartingstructure.persistence.StartingStructurePlan;
 import com.typ.adaptivestartingstructure.persistence.StartingStructureSavedData;
 import com.typ.adaptivestartingstructure.persistence.StartingStructureStorage;
@@ -14,6 +15,7 @@ import com.typ.adaptivestartingstructure.structure.StructureDefinition;
 import com.typ.adaptivestartingstructure.structure.StructurePool;
 import com.typ.adaptivestartingstructure.structure.StructureSource;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
@@ -72,6 +74,34 @@ public final class SpawnPlanningLifecycle {
                     "Starting-structure planning must run on the server thread");
         }
 
+        Optional<StartingStructureSavedData> existing;
+        try {
+            existing = context.loadExistingData();
+        } catch (RuntimeException failure) {
+            context.reportPlanningFallback(
+                    PlanningFailurePhase.PLANNING,
+                    failure);
+            return false;
+        }
+        Optional<StartingStructurePlan> resumable =
+                resumablePlan(existing, context.worldSeed());
+        if (resumable.isPresent()) {
+            /*
+             * A previous attempt planned this world and then died before the
+             * level was marked initialized, so planning runs again. Writing
+             * the data file a second time is refused by design, which would
+             * leave the world impossible to create; the plan on disk is still
+             * valid for this seed, so it is used as it stands.
+             */
+            StartingStructurePlan plannedEarlier = resumable.get();
+            context.setSpawn(
+                    plannedEarlier.candidate().worldSpawn(),
+                    DEFAULT_SPAWN_ANGLE);
+            context.cancelEvent();
+            context.logResumedPlan(plannedEarlier);
+            return true;
+        }
+
         long planningStartedAt = context.nanoTime();
         StartingStructurePlan plan;
         try {
@@ -94,6 +124,16 @@ public final class SpawnPlanningLifecycle {
         context.cancelEvent();
         context.logCompletion(plan, planningElapsedNanos);
         return true;
+    }
+
+    private static Optional<StartingStructurePlan> resumablePlan(
+            Optional<StartingStructureSavedData> existing,
+            long worldSeed) {
+        return existing
+                .filter(data -> data.state()
+                        == StartingStructureSavedData.State.PLANNED)
+                .map(StartingStructureSavedData::plan)
+                .filter(plan -> plan.selectionSeed() == worldSeed);
     }
 
     private static final class EventContext implements SpawnPlanningContext {
@@ -135,6 +175,16 @@ public final class SpawnPlanningLifecycle {
         }
 
         @Override
+        public long worldSeed() {
+            return level.getSeed();
+        }
+
+        @Override
+        public Optional<StartingStructureSavedData> loadExistingData() {
+            return StartingStructureStorage.load(level);
+        }
+
+        @Override
         public StartingStructurePlan createPlan(ConfigSnapshot config)
                 throws Exception {
             long seed = level.getSeed();
@@ -155,7 +205,8 @@ public final class SpawnPlanningLifecycle {
                     seed,
                     StructurePool.SELECTION_SALT_V1,
                     StructurePool.SELECTION_ALGORITHM_VERSION,
-                    result);
+                    result,
+                    PlacementSettings.from(config));
         }
 
         @Override
@@ -199,7 +250,7 @@ public final class SpawnPlanningLifecycle {
             var diagnostics = plan.diagnostics();
             AdaptiveStartingStructure.LOGGER.info(
                     "Planned starting structure '{}' at {} with rotation {}, score {}, and world spawn {} "
-                            + "in {} ms using {} generator queries "
+                            + "in {} ms using {} generator queries (search v{}) "
                             + "(coarse: {} evaluated/{} accepted; fine: {} evaluated/{} accepted; "
                             + "spawn: {} evaluated/{} rejected). "
                             + "Vanilla initial-spawn processing is canceled; any configured bonus chest will be skipped.",
@@ -210,12 +261,24 @@ public final class SpawnPlanningLifecycle {
                     plan.candidate().worldSpawn(),
                     TimeUnit.NANOSECONDS.toMillis(planningElapsedNanos),
                     diagnostics.generatorQueriesUsed(),
+                    SitePlanner.SEARCH_ALGORITHM_VERSION,
                     diagnostics.coarseEvaluationCount(),
                     diagnostics.coarseCandidateCount(),
                     diagnostics.fineEvaluationCount(),
                     diagnostics.fineAcceptedCount(),
                     diagnostics.spawnValidationCount(),
                     diagnostics.spawnRejectedCandidateCount());
+        }
+
+        @Override
+        public void logResumedPlan(StartingStructurePlan plan) {
+            AdaptiveStartingStructure.LOGGER.warn(
+                    "Reusing the starting-structure plan for '{}' at {} with world spawn {} "
+                            + "left by an earlier creation attempt of this world; "
+                            + "planning is skipped and the stored site is kept.",
+                    plan.candidate().structureId(),
+                    plan.candidate().placementOrigin(),
+                    plan.candidate().worldSpawn());
         }
     }
 }

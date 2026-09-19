@@ -5,6 +5,7 @@ import com.typ.adaptivestartingstructure.config.ConfigSnapshot;
 import com.typ.adaptivestartingstructure.structure.RotatedStructureView;
 import com.typ.adaptivestartingstructure.structure.StructureBounds;
 import com.typ.adaptivestartingstructure.structure.StructureDefinition;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,39 @@ import net.minecraft.world.level.GameRules;
 
 public final class SitePlanner {
     static final long SLOW_WARNING_NANOS = TimeUnit.SECONDS.toNanos(10L);
+
+    /*
+     * The coarse search would happily spend the whole budget looking for
+     * more positions, leaving nothing to evaluate the ones it found: every
+     * later query would fail immediately and the run would end with no site
+     * despite having candidates in hand. Each phase therefore stops at its
+     * own share of the budget and hands its partial result to the next one.
+     * The configured budget still caps the run as a whole.
+     */
+    static final int COARSE_QUERY_SHARE_PERCENT = 70;
+    static final int FINE_QUERY_SHARE_PERCENT = 95;
+
+    /*
+     * How many validated sites end the search. One would do for placement, but
+     * the rest are the alternatives placement falls back on when the generated
+     * world turns out to disagree with the planned terrain, and finding them
+     * later means searching again.
+     */
+    static final int EARLY_EXIT_TARGET_SITES = 4;
+
+    /**
+     * Which site-search algorithm produced a plan.
+     *
+     * <p>Version 2 walks a square lattice outward from the vanilla spawn,
+     * ranks bands before cost, stops once it has enough validated sites, and
+     * scores possible generated structures as a penalty. Version 1 swept a
+     * golden-angle spiral over the whole radius and ranked on flatness alone.
+     *
+     * <p>This is not a compatibility gate: a plan is written once and replayed
+     * as it stands, never re-planned. It exists so a log line from the field
+     * says which search chose the site.
+     */
+    public static final int SEARCH_ALGORITHM_VERSION = 2;
 
     private SitePlanner() {
     }
@@ -96,16 +130,7 @@ public final class SitePlanner {
             PlannerQueryContext queries,
             StructureDefinition structure,
             int configuredSpawnRadius) {
-        CoarseSearchResult coarseResult =
-                CoarseSiteSearch.searchDetailed(
-                        seed,
-                        config,
-                        queries,
-                        structure);
-        List<CoarseCandidate> coarseCandidates =
-                coarseResult.acceptedCandidates();
-        FineSearchResult fineResult =
-                FineSiteEvaluator.evaluate(config, queries, coarseCandidates);
+        int budget = config.maximumGeneratorQueries();
         EnumMap<SpawnRejectionReason, Integer> spawnRejectionCounts =
                 new EnumMap<>(SpawnRejectionReason.class);
         int spawnValidationCount = 0;
@@ -114,32 +139,82 @@ public final class SitePlanner {
         int validationRadius = config.requireSafeSpawnArea()
                 ? configuredSpawnRadius
                 : 0;
-        List<SiteCandidate> acceptedCandidates =
-                new java.util.ArrayList<>();
+        List<SiteCandidate> acceptedCandidates = new ArrayList<>();
+        CoarseSearchResult coarseResult = null;
+        FineSearchResult fineResult = null;
+        BudgetInterruption interruption = null;
 
-        for (FineCandidateEvaluation evaluation :
-                fineResult.acceptedCandidates()) {
-            FineCandidatePlan plan = evaluation.plan().orElseThrow();
-            SpawnValidationResult spawnValidation =
-                    TheoreticalSpawnValidator.validate(
-                            validationRadius,
-                            evaluation.candidate().structure(),
-                            plan,
-                            terrain);
-            spawnValidationCount++;
-            if (!spawnValidation.accepted()) {
-                spawnRejectedCandidateCount++;
-                mergeCounts(
-                        spawnRejectionCounts,
-                        spawnValidation.rejectionCounts());
-                continue;
+        /*
+         * One band at a time, nearest first. The far band costs roughly four
+         * times the near one with the default settings, and paying for it once
+         * the near band has already produced usable sites buys nothing: the
+         * sites it finds rank behind them anyway.
+         */
+        for (CoarseCandidate.SearchBand band
+                : CoarseCandidate.SearchBand.values()) {
+            queries.limitNextPhase(
+                    phaseLimit(budget, COARSE_QUERY_SHARE_PERCENT));
+            CoarseSearchResult bandCoarse = CoarseSiteSearch.searchBand(
+                    config,
+                    queries,
+                    structure,
+                    band);
+            coarseResult = coarseResult == null
+                    ? bandCoarse
+                    : coarseResult.merge(bandCoarse);
+
+            queries.limitNextPhase(
+                    phaseLimit(budget, FINE_QUERY_SHARE_PERCENT));
+            FineSearchResult bandFine = FineSiteEvaluator.evaluate(
+                    config,
+                    queries,
+                    bandCoarse.acceptedCandidates());
+            fineResult = fineResult == null
+                    ? bandFine
+                    : fineResult.merge(bandFine);
+
+            queries.limitNextPhase(budget);
+            if (interruption == null) {
+                interruption = firstInterruption(bandCoarse, bandFine);
             }
 
-            acceptedCandidates.add(createSiteCandidate(
-                    structure,
-                    evaluation,
-                    configuredSpawnRadius,
-                    spawnValidation));
+            for (FineCandidateEvaluation evaluation
+                    : bandFine.acceptedCandidates()) {
+                FineCandidatePlan plan = evaluation.plan().orElseThrow();
+                SpawnValidationResult spawnValidation;
+                try {
+                    spawnValidation =
+                            TheoreticalSpawnValidator.validate(
+                                    validationRadius,
+                                    evaluation.candidate().structure(),
+                                    plan,
+                                    terrain);
+                } catch (GeneratorQueryBudgetExceededException failure) {
+                    if (interruption == null) {
+                        interruption = new BudgetInterruption("spawn", failure);
+                    }
+                    break;
+                }
+                spawnValidationCount++;
+                if (!spawnValidation.accepted()) {
+                    spawnRejectedCandidateCount++;
+                    mergeCounts(
+                            spawnRejectionCounts,
+                            spawnValidation.rejectionCounts());
+                    continue;
+                }
+
+                acceptedCandidates.add(createSiteCandidate(
+                        structure,
+                        evaluation,
+                        configuredSpawnRadius,
+                        spawnValidation));
+            }
+
+            if (interruption != null
+                    || acceptedCandidates.size() >= EARLY_EXIT_TARGET_SITES) {
+                break;
+            }
         }
 
         SitePlanningDiagnostics diagnostics = diagnostics(
@@ -150,6 +225,15 @@ public final class SitePlanner {
                 queries,
                 spawnRejectionCounts);
         if (!acceptedCandidates.isEmpty()) {
+            if (interruption != null) {
+                AdaptiveStartingStructure.LOGGER.warn(
+                        "Starting-structure planning stopped the {} phase on its query budget "
+                                + "after {} of {} queries; continuing with the {} site(s) already found",
+                        interruption.phase(),
+                        queries.queriesUsed(),
+                        queries.maximumQueries(),
+                        acceptedCandidates.size());
+            }
             return new SitePlanningResult(
                     acceptedCandidates.getFirst(),
                     acceptedCandidates.subList(
@@ -157,7 +241,33 @@ public final class SitePlanner {
                             acceptedCandidates.size()),
                     diagnostics);
         }
+        if (interruption != null) {
+            /*
+             * Nothing survived, so the budget really was the cause and the
+             * caller gets the failure that names it.
+             */
+            throw interruption.failure();
+        }
         throw new SitePlanningException(diagnostics);
+    }
+
+    static int phaseLimit(int budget, int sharePercent) {
+        return Math.max(1, (int) ((long) budget * sharePercent / 100L));
+    }
+
+    private static BudgetInterruption firstInterruption(
+            CoarseSearchResult coarseResult,
+            FineSearchResult fineResult) {
+        return coarseResult.budgetFailure()
+                .map(failure -> new BudgetInterruption("coarse", failure))
+                .or(() -> fineResult.budgetFailure()
+                        .map(failure -> new BudgetInterruption("fine", failure)))
+                .orElse(null);
+    }
+
+    private record BudgetInterruption(
+            String phase,
+            GeneratorQueryBudgetExceededException failure) {
     }
 
     private static SiteCandidate createSiteCandidate(

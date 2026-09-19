@@ -43,7 +43,7 @@ final class TerrainSurfaceClassifier {
                 return y;
             }
         }
-        throw new PlacementPreparationException(
+        throw new UnsuitableGeneratedSiteException(
                 "Generated column contains no solid terrain surface");
     }
 

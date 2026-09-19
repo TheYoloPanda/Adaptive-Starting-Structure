@@ -5,14 +5,61 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 public record CoarseSearchResult(
         List<CoarseCandidate> acceptedCandidates,
         int evaluatedCandidateCount,
         int rejectedCandidateCount,
-        Map<CoarseRejectionReason, Integer> rejectionCounts) {
+        Map<CoarseRejectionReason, Integer> rejectionCounts,
+        Optional<GeneratorQueryBudgetExceededException> budgetFailure) {
+
+    public CoarseSearchResult(
+            List<CoarseCandidate> acceptedCandidates,
+            int evaluatedCandidateCount,
+            int rejectedCandidateCount,
+            Map<CoarseRejectionReason, Integer> rejectionCounts) {
+        this(
+                acceptedCandidates,
+                evaluatedCandidateCount,
+                rejectedCandidateCount,
+                rejectionCounts,
+                Optional.empty());
+    }
+
+    /** The same result carrying a reordered or filtered candidate list. */
+    public CoarseSearchResult withCandidates(
+            List<CoarseCandidate> replacement) {
+        return new CoarseSearchResult(
+                replacement,
+                evaluatedCandidateCount,
+                rejectedCandidateCount,
+                rejectionCounts,
+                budgetFailure);
+    }
+
+    /** Adds the counts of a later band to this one, keeping its order. */
+    public CoarseSearchResult merge(CoarseSearchResult later) {
+        Objects.requireNonNull(later, "later");
+        List<CoarseCandidate> combined = new java.util.ArrayList<>(
+                acceptedCandidates.size() + later.acceptedCandidates.size());
+        combined.addAll(acceptedCandidates);
+        combined.addAll(later.acceptedCandidates);
+        EnumMap<CoarseRejectionReason, Integer> counts =
+                new EnumMap<>(CoarseRejectionReason.class);
+        counts.putAll(rejectionCounts);
+        later.rejectionCounts.forEach(
+                (reason, count) -> counts.merge(reason, count, Integer::sum));
+        return new CoarseSearchResult(
+                combined,
+                Math.addExact(evaluatedCandidateCount, later.evaluatedCandidateCount),
+                Math.addExact(rejectedCandidateCount, later.rejectedCandidateCount),
+                counts,
+                budgetFailure.isPresent() ? budgetFailure : later.budgetFailure);
+    }
 
     public CoarseSearchResult {
+        Objects.requireNonNull(budgetFailure, "budgetFailure");
         acceptedCandidates = List.copyOf(
                 Objects.requireNonNull(
                         acceptedCandidates,

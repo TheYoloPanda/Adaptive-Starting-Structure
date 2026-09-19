@@ -9,8 +9,10 @@ import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -19,14 +21,26 @@ import net.minecraft.world.level.material.Fluids;
 public final class CoarseSiteSearch {
     static final int SAMPLE_COUNT = 9;
 
-    private static final double TWO_PI = Math.PI * 2.0D;
-    private static final double GOLDEN_ANGLE = Math.PI * (3.0D - Math.sqrt(5.0D));
-    private static final long NEAR_PHASE_SALT = 0x243F6A8885A308D3L;
-    private static final long FAR_PHASE_SALT = 0x13198A2E03707344L;
+    private static final int MAX_LATTICE_POSITIONS = 1 << 16;
+    private static final int MAX_LATTICE_EXTENT = 1 << 10;
+
+    /**
+     * Band first, then cost.
+     *
+     * <p>Ranking on flatness alone let a site four kilometres away win over one
+     * at a hundred metres for a tenth of a block of average error, which is not
+     * a trade a player asked for. Distance stays a late tie-break: inside a
+     * band every position is equally acceptable, so the band boundary carries
+     * the preference and the search order carries the rest.
+     */
     private static final Comparator<CoarseCandidate> COARSE_ORDER =
-            Comparator.comparingDouble(
+            Comparator.comparingInt(
                             (CoarseCandidate candidate) ->
-                                    candidate.metrics().meanAbsoluteGroundError())
+                                    candidate.searchBand().ordinal())
+                    .thenComparing(candidate ->
+                            candidate.metrics().structureConflict())
+                    .thenComparingDouble(candidate ->
+                            candidate.metrics().meanAbsoluteGroundError())
                     .thenComparingInt(candidate -> candidate.metrics().elevationRange())
                     .thenComparingDouble(candidate -> candidate.metrics().fluidFraction())
                     .thenComparingInt(candidate ->
@@ -39,23 +53,53 @@ public final class CoarseSiteSearch {
     private CoarseSiteSearch() {
     }
 
-    public static List<CoarseCandidate> search(
-            long seed,
+    /**
+     * Searches every band.
+     *
+     * <p>The world seed is not an input: positions come from a lattice, so the
+     * same configuration and the same terrain give the same candidates. What
+     * the seed decides is the terrain itself, which the queries already carry.
+     */
+    public static CoarseSearchResult searchDetailed(
             ConfigSnapshot config,
             PlannerQueryContext queries,
             StructureDefinition structure) {
-        return searchDetailed(seed, config, queries, structure)
-                .acceptedCandidates();
+        CoarseSearchResult near = searchBand(
+                config,
+                queries,
+                structure,
+                CoarseCandidate.SearchBand.NEAR);
+        if (near.budgetFailure().isPresent()) {
+            return near;
+        }
+        return sorted(near.merge(searchBand(
+                config,
+                queries,
+                structure,
+                CoarseCandidate.SearchBand.FAR)));
     }
 
-    public static CoarseSearchResult searchDetailed(
-            long seed,
+    private static CoarseSearchResult sorted(CoarseSearchResult result) {
+        List<CoarseCandidate> candidates =
+                new ArrayList<>(result.acceptedCandidates());
+        candidates.sort(COARSE_ORDER);
+        return result.withCandidates(candidates);
+    }
+
+    /**
+     * Searches one band on its own, so that the caller can stop once the near
+     * band has produced enough usable sites instead of always paying for the
+     * far one.
+     */
+    public static CoarseSearchResult searchBand(
             ConfigSnapshot config,
             PlannerQueryContext queries,
-            StructureDefinition structure) {
+            StructureDefinition structure,
+            CoarseCandidate.SearchBand band) {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(queries, "queries");
         Objects.requireNonNull(structure, "structure");
+        Objects.requireNonNull(band, "band");
 
         List<Rotation> rotations = config.allowedRotations();
         int locationBudget = config.maximumCoarseCandidates() / rotations.size();
@@ -79,32 +123,22 @@ public final class CoarseSiteSearch {
                 saturatedAdd(nearCapacity, farCapacity));
 
         BandBudget bandBudget = distributeBudget(locationBudget, nearCapacity, farCapacity);
+        int positionBudget = band == CoarseCandidate.SearchBand.NEAR
+                ? bandBudget.near()
+                : bandBudget.far();
         int expectedCandidates = (int) Math.min(
                 4096L,
                 Math.min(
                         config.maximumCoarseCandidates(),
-                        (long) locationBudget * rotations.size()));
+                        (long) positionBudget * rotations.size()));
         List<CoarseCandidate> candidates = new ArrayList<>(expectedCandidates);
         Set<Long> visitedCenters = new HashSet<>();
         BlockPos origin = queries.suggestedSpawnOrigin();
         SearchDiagnostics diagnostics = new SearchDiagnostics();
 
-        evaluateBand(
-                seed,
-                CoarseCandidate.SearchBand.NEAR,
-                bandBudget.near(),
-                origin,
-                config,
-                queries,
-                structure,
-                rotations,
-                visitedCenters,
-                candidates,
-                diagnostics);
-        evaluateBand(
-                seed,
-                CoarseCandidate.SearchBand.FAR,
-                bandBudget.far(),
+        GeneratorQueryBudgetExceededException budgetFailure = evaluateBand(
+                band,
+                positionBudget,
                 origin,
                 config,
                 queries,
@@ -119,11 +153,16 @@ public final class CoarseSiteSearch {
             throw new IllegalStateException(
                     "Coarse search exceeded maximumCoarseCandidates");
         }
-        return diagnostics.result(candidates);
+        return diagnostics.result(candidates, budgetFailure);
     }
 
-    private static void evaluateBand(
-            long seed,
+    /**
+     * Evaluates one band and returns the budget failure that stopped it,
+     * or {@code null} when the band completed. Stopping keeps every
+     * candidate found so far: the query budget bounds how far the search
+     * looks, not whether its work survives.
+     */
+    private static GeneratorQueryBudgetExceededException evaluateBand(
             CoarseCandidate.SearchBand band,
             int positionCount,
             BlockPos origin,
@@ -134,12 +173,9 @@ public final class CoarseSiteSearch {
             Set<Long> visitedCenters,
             List<CoarseCandidate> candidates,
             SearchDiagnostics diagnostics) {
-        double basePhase = phase(seed, band);
-        for (int positionIndex = 0; positionIndex < positionCount; positionIndex++) {
-            int radius = radiusFor(band, positionIndex, positionCount, config);
-            double angle = basePhase + GOLDEN_ANGLE * positionIndex;
-            long centerX = (long) origin.getX() + Math.round(Math.cos(angle) * radius);
-            long centerZ = (long) origin.getZ() + Math.round(Math.sin(angle) * radius);
+        for (LatticePosition position : latticePositions(band, positionCount, config)) {
+            long centerX = (long) origin.getX() + position.offsetX();
+            long centerZ = (long) origin.getZ() + position.offsetZ();
             if (centerX < Integer.MIN_VALUE || centerX > Integer.MAX_VALUE
                     || centerZ < Integer.MIN_VALUE || centerZ > Integer.MAX_VALUE) {
                 diagnostics.rejectCandidates(
@@ -153,33 +189,36 @@ public final class CoarseSiteSearch {
                 continue;
             }
 
-            long deltaX = centerX - origin.getX();
-            long deltaZ = centerZ - origin.getZ();
-            long distanceSquared = deltaX * deltaX + deltaZ * deltaZ;
+            long distanceSquared = position.distanceSquared();
             for (Rotation rotation : rotations) {
                 diagnostics.beginCandidate();
                 RotatedStructureView view = structure.view(rotation);
-                CoarseCandidate candidate = evaluateCandidate(
-                        candidateX,
-                        candidateZ,
-                        radius,
-                        band,
-                        distanceSquared,
-                        view,
-                        config,
-                        queries,
-                        diagnostics);
+                CoarseCandidate candidate;
+                try {
+                    candidate = evaluateCandidate(
+                            candidateX,
+                            candidateZ,
+                            band,
+                            distanceSquared,
+                            view,
+                            config,
+                            queries,
+                            diagnostics);
+                } catch (GeneratorQueryBudgetExceededException budgetFailure) {
+                    diagnostics.abandonCandidate();
+                    return budgetFailure;
+                }
                 if (candidate != null) {
                     candidates.add(candidate);
                 }
             }
         }
+        return null;
     }
 
     private static CoarseCandidate evaluateCandidate(
             int centerX,
             int centerZ,
-            int ringRadius,
             CoarseCandidate.SearchBand band,
             long distanceSquared,
             RotatedStructureView structure,
@@ -231,6 +270,12 @@ public final class CoarseSiteSearch {
         BiomeClassifier.Classification siteBiome =
                 BiomeClassifier.Classification.PREFERRED;
 
+        /*
+         * Ground height and biome first, across every sample. Both can reject
+         * the candidate on their own, and interleaving the surface heightmap
+         * with them paid for surface queries on samples that a later sample
+         * was about to throw away anyway.
+         */
         for (int sample = 0; sample < SAMPLE_COUNT; sample++) {
             int x = sampleX[sample];
             int z = sampleZ[sample];
@@ -261,7 +306,13 @@ public final class CoarseSiteSearch {
             if (classification == BiomeClassifier.Classification.FALLBACK_LAND) {
                 siteBiome = BiomeClassifier.Classification.FALLBACK_LAND;
             }
+        }
 
+        /* Only a candidate that survived the first pass is worth a surface query. */
+        for (int sample = 0; sample < SAMPLE_COUNT; sample++) {
+            int x = sampleX[sample];
+            int z = sampleZ[sample];
+            int terrainHeight = groundHeights[sample] + 1;
             int worldSurfaceHeight =
                     queries.baseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG);
             if (!isValidHeight(worldSurfaceHeight, queries)) {
@@ -314,11 +365,11 @@ public final class CoarseSiteSearch {
                 meanAbsoluteGroundError,
                 SAMPLE_COUNT,
                 fluidColumns,
-                siteBiome);
+                siteBiome,
+                mayContainStructureStart(bounds, config, queries));
         return new CoarseCandidate(
                 centerX,
                 centerZ,
-                ringRadius,
                 band,
                 structure,
                 bounds.minimumX,
@@ -327,6 +378,35 @@ public final class CoarseSiteSearch {
                 bounds.maximumZ,
                 distanceSquared,
                 metrics);
+    }
+
+    /**
+     * Whether a generated structure may start where this site would be built,
+     * asked only once the site has otherwise been accepted.
+     *
+     * <p>The flattest ground a search can find is usually a village, and
+     * discovering that only after the area has been generated in full costs
+     * seconds of synchronous worldgen for every retry, and moves the world
+     * spawn after chunks around the old one already exist. The blend margin is
+     * included because the site modifies terrain out to it.
+     */
+    private static boolean mayContainStructureStart(
+            CandidateBounds bounds,
+            ConfigSnapshot config,
+            PlannerQueryContext queries) {
+        int margin = config.blendWidth();
+        return queries.mayContainStructureStart(
+                chunkOf((long) bounds.minimumX - margin),
+                chunkOf((long) bounds.minimumZ - margin),
+                chunkOf((long) bounds.maximumX + margin),
+                chunkOf((long) bounds.maximumZ + margin));
+    }
+
+    private static int chunkOf(long blockCoordinate) {
+        long clamped = Math.max(
+                Integer.MIN_VALUE,
+                Math.min(Integer.MAX_VALUE, blockCoordinate));
+        return SectionPos.blockToSectionCoord(clamped);
     }
 
     private static CandidateBounds centeredBounds(
@@ -437,70 +517,110 @@ public final class CoarseSiteSearch {
         return Math.max(includeCenter ? 1 : 0, (int) Math.ceil(estimated));
     }
 
-    private static int radiusFor(
+    /**
+     * The positions of one band, nearest first.
+     *
+     * <p>Candidates sit on a square lattice anchored on the origin and are
+     * visited in order of true distance, so the search reaches a usable site
+     * near the vanilla spawn before it spends anything on far ones. The
+     * lattice also keeps the whole thing free of trigonometry: {@code sin} and
+     * {@code cos} are allowed to differ by an ulp between the interpreter, the
+     * JIT and another CPU, which was enough to move a rounded centre and break
+     * the promise that one seed gives one result everywhere.
+     */
+    static List<LatticePosition> latticePositions(
             CoarseCandidate.SearchBand band,
-            int index,
-            int count,
+            int positionBudget,
             ConfigSnapshot config) {
-        if (band == CoarseCandidate.SearchBand.NEAR) {
-            if (count == 1) {
-                return config.maximumSearchRadius() == config.preferredSearchRadius()
-                        ? config.preferredSearchRadius()
-                        : 0;
-            }
-            if (index == 0 || config.preferredSearchRadius() == 0) {
-                return 0;
-            }
-            if (index == count - 1) {
-                return config.preferredSearchRadius();
-            }
-            double quantile = (double) index / (count - 1);
-            double radius = config.preferredSearchRadius() * Math.sqrt(quantile);
-            return snapRadius(
-                    radius,
-                    0,
-                    config.preferredSearchRadius(),
-                    config.nearCandidateSpacing());
+        if (positionBudget <= 0) {
+            return List.of();
         }
-
-        if (index == count - 1) {
-            return config.maximumSearchRadius();
+        boolean near = band == CoarseCandidate.SearchBand.NEAR;
+        long innerRadius = near ? -1L : config.preferredSearchRadius();
+        long outerRadius = near
+                ? config.preferredSearchRadius()
+                : config.maximumSearchRadius();
+        if (outerRadius <= innerRadius) {
+            return List.of();
         }
-        double quantile = (double) (index + 1) / count;
-        double innerSquared = (double) config.preferredSearchRadius()
-                * config.preferredSearchRadius();
-        double outerSquared = (double) config.maximumSearchRadius()
-                * config.maximumSearchRadius();
-        double radius = Math.sqrt(innerSquared + quantile * (outerSquared - innerSquared));
-        return snapRadius(
-                radius,
-                config.preferredSearchRadius(),
-                config.maximumSearchRadius(),
-                config.farCandidateSpacing());
+        int step = boundedStep(
+                near ? config.nearCandidateSpacing() : config.farCandidateSpacing(),
+                innerRadius,
+                outerRadius);
+        long innerSquared = innerRadius < 0L ? -1L : innerRadius * innerRadius;
+        long outerSquared = outerRadius * outerRadius;
+        int extent = (int) Math.min(
+                (long) MAX_LATTICE_EXTENT,
+                outerRadius / step);
+
+        List<LatticePosition> positions = new ArrayList<>();
+        for (int i = -extent; i <= extent; i++) {
+            long offsetX = (long) i * step;
+            for (int j = -extent; j <= extent; j++) {
+                long offsetZ = (long) j * step;
+                long distanceSquared = offsetX * offsetX + offsetZ * offsetZ;
+                if (distanceSquared <= innerSquared
+                        || distanceSquared > outerSquared) {
+                    continue;
+                }
+                positions.add(new LatticePosition(
+                        offsetX,
+                        offsetZ,
+                        distanceSquared));
+            }
+        }
+        positions.sort(LATTICE_ORDER);
+        return thinToBudget(positions, positionBudget);
     }
 
-    private static int snapRadius(
-            double radius,
-            int innerRadius,
-            int outerRadius,
-            int spacing) {
-        long step = Math.max(1L, Math.round((radius - innerRadius) / spacing));
-        long snapped = (long) innerRadius + step * spacing;
-        return (int) Math.min(outerRadius, snapped);
+    /**
+     * Keeps {@code positionBudget} positions spread evenly through the ordered
+     * band, first and last included.
+     *
+     * <p>Simply cutting the list short would crowd every position against the
+     * band's inner edge and leave its outer part unsearched, and widening the
+     * lattice until it happens to hold the right number of points is only
+     * approximate: it overshoots badly for small budgets, where one position
+     * can end up standing for a whole band. Thinning an exact list is exact.
+     */
+    private static List<LatticePosition> thinToBudget(
+            List<LatticePosition> ordered,
+            int positionBudget) {
+        int size = ordered.size();
+        if (size <= positionBudget) {
+            return ordered;
+        }
+        if (positionBudget == 1) {
+            return List.of(ordered.getFirst());
+        }
+        List<LatticePosition> thinned = new ArrayList<>(positionBudget);
+        for (int index = 0; index < positionBudget; index++) {
+            long scaled = (long) index * (size - 1);
+            thinned.add(ordered.get((int) (scaled / (positionBudget - 1))));
+        }
+        return thinned;
     }
 
-    private static double phase(long seed, CoarseCandidate.SearchBand band) {
-        long salt = band == CoarseCandidate.SearchBand.NEAR
-                ? NEAR_PHASE_SALT
-                : FAR_PHASE_SALT;
-        long mixed = mix64(seed ^ salt);
-        return (mixed >>> 11) * 0x1.0p-53 * TWO_PI;
-    }
-
-    private static long mix64(long value) {
-        value = (value ^ (value >>> 30)) * 0xBF58476D1CE4E5B9L;
-        value = (value ^ (value >>> 27)) * 0x94D049BB133111EBL;
-        return value ^ (value >>> 31);
+    /**
+     * The configured spacing, widened only as far as it takes to keep the
+     * generated lattice within {@link #MAX_LATTICE_POSITIONS}. Density is the
+     * budget's business; this only stops an extreme radius and spacing from
+     * asking for an unbounded list.
+     */
+    private static int boundedStep(
+            int configuredSpacing,
+            long innerRadius,
+            long outerRadius) {
+        double inner = Math.max(0L, innerRadius);
+        double area = Math.PI
+                * ((double) outerRadius * outerRadius - inner * inner);
+        double required = Math.sqrt(area / MAX_LATTICE_POSITIONS);
+        if (!Double.isFinite(required) || required <= configuredSpacing) {
+            return configuredSpacing;
+        }
+        return (int) Math.min(
+                (long) Integer.MAX_VALUE,
+                (long) Math.ceil(required));
     }
 
     private static int saturatedAdd(int first, int second) {
@@ -510,6 +630,17 @@ public final class CoarseSiteSearch {
 
     private static long pack(int x, int z) {
         return ((long) x << 32) ^ (z & 0xFFFFFFFFL);
+    }
+
+    private static final Comparator<LatticePosition> LATTICE_ORDER =
+            Comparator.comparingLong(LatticePosition::distanceSquared)
+                    .thenComparingLong(LatticePosition::offsetX)
+                    .thenComparingLong(LatticePosition::offsetZ);
+
+    record LatticePosition(
+            long offsetX,
+            long offsetZ,
+            long distanceSquared) {
     }
 
     private record BandBudget(int near, int far) {
@@ -533,6 +664,15 @@ public final class CoarseSiteSearch {
                     Math.incrementExact(evaluatedCandidateCount);
         }
 
+        /*
+         * A candidate cut short by the query budget is neither accepted nor
+         * rejected, so it must leave the evaluated count untouched.
+         */
+        private void abandonCandidate() {
+            evaluatedCandidateCount =
+                    Math.decrementExact(evaluatedCandidateCount);
+        }
+
         private void rejectCandidates(
                 int candidateCount,
                 CoarseRejectionReason reason) {
@@ -551,12 +691,14 @@ public final class CoarseSiteSearch {
         }
 
         private CoarseSearchResult result(
-                List<CoarseCandidate> acceptedCandidates) {
+                List<CoarseCandidate> acceptedCandidates,
+                GeneratorQueryBudgetExceededException budgetFailure) {
             return new CoarseSearchResult(
                     acceptedCandidates,
                     evaluatedCandidateCount,
                     rejectedCandidateCount,
-                    rejectionCounts);
+                    rejectionCounts,
+                    Optional.ofNullable(budgetFailure));
         }
     }
 

@@ -15,7 +15,7 @@ public final class WorldFinalization {
     public static WorldFinalizationResult finish(
             PreparedPlacement prepared,
             TemplatePlacementResult placement) {
-        return finish(prepared, placement, true);
+        return finishPersistedPlan(prepared, placement);
     }
 
     public static WorldFinalizationResult finish(
@@ -23,13 +23,14 @@ public final class WorldFinalization {
             TemplatePlacementResult placement,
             ConfigSnapshot config) {
         Objects.requireNonNull(config, "config");
-        return finish(prepared, placement, config.requireSafeSpawnArea());
+        // Reloadable config must not change the spawn-safety contract that
+        // was already validated and persisted during world planning.
+        return finishPersistedPlan(prepared, placement);
     }
 
-    private static WorldFinalizationResult finish(
+    private static WorldFinalizationResult finishPersistedPlan(
             PreparedPlacement prepared,
-            TemplatePlacementResult placement,
-            boolean requireSafeSpawnArea) {
+            TemplatePlacementResult placement) {
         Objects.requireNonNull(prepared, "prepared");
         Objects.requireNonNull(placement, "placement");
         // Finalization consumes the prepared placement so its temporary
@@ -37,15 +38,13 @@ public final class WorldFinalization {
         try (prepared) {
             return finishPrepared(
                     prepared,
-                    placement,
-                    requireSafeSpawnArea);
+                    placement);
         }
     }
 
     private static WorldFinalizationResult finishPrepared(
             PreparedPlacement prepared,
-            TemplatePlacementResult placement,
-            boolean requireSafeSpawnArea) {
+            TemplatePlacementResult placement) {
         ServerLevel level = prepared.level();
         if (!level.getServer().isSameThread()) {
             throw new PlacementPreparationException(
@@ -74,7 +73,7 @@ public final class WorldFinalization {
                         level,
                         candidate.worldSpawn(),
                         prepared.bounds().structureBounds(),
-                        requireSafeSpawnArea);
+                        candidate.validatedSpawnRadius());
         if (!spawnValidation.accepted()) {
             throw new PlacementPreparationException(
                     "Real spawn validation failed after placement at "
@@ -84,6 +83,21 @@ public final class WorldFinalization {
                             + ": "
                             + spawnValidation.rejectionCounts());
         }
+        if (spawnValidation.checkedColumns()
+                != candidate.validatedSpawnColumns()) {
+            throw new PlacementPreparationException(
+                    "Real spawn validation scope no longer matches the persisted plan");
+        }
+
+        PreparedTemplateEntities preparedEntities =
+                prepared.entities();
+        TemplateEntityPlacementApplier
+                .validateAttachments(
+                        preparedEntities);
+        TemplateEntityPlacementMetrics entityMetrics =
+                TemplateEntityPlacementApplier.addAll(
+                        level,
+                        preparedEntities);
 
         TerrainLevelingResult leveling =
                 placement.terrain().leveling();
@@ -107,7 +121,13 @@ public final class WorldFinalization {
                         updates.neighborUpdates(),
                         updates.comparatorUpdates(),
                         updates.fluidTicks(),
-                        spawnValidation.checkedColumns());
+                        spawnValidation.checkedColumns(),
+                        entityMetrics.sourceEntities(),
+                        entityMetrics.plannedEntities(),
+                        entityMetrics.skippedByDisabledOption(),
+                        entityMetrics.skippedUnsupportedEntities(),
+                        entityMetrics.materializedEntities(),
+                        entityMetrics.addedEntities());
         return new WorldFinalizationResult(
                 placement,
                 spawnValidation,
@@ -122,7 +142,7 @@ public final class WorldFinalization {
                 .leveling()
                 .snapshot()
                 .bounds()
-                .equals(prepared.bounds())) {
+                .equals(prepared.treeObservationBounds())) {
             throw new PlacementPreparationException(
                     "Finalization terrain context does not match prepared placement");
         }

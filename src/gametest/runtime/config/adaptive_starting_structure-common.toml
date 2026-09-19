@@ -17,10 +17,12 @@ nearCandidateSpacing = 1
 # Range: 1 ~ 30000000
 farCandidateSpacing = 1
 #Maximum number of candidates considered by the coarse search.
+#Values above 16384 are rejected before planning.
 # Default: 4096
 # Range: > 1
 maximumCoarseCandidates = 1
 #Number of top coarse candidates evaluated by the fine search.
+#Values above 128 are rejected before planning.
 # Default: 32
 # Range: > 1
 fineCandidateCount = 1
@@ -29,10 +31,12 @@ fineCandidateCount = 1
 # Range: 1 ~ 30000000
 fineSampleStep = 1
 #Maximum generator queries allowed for one planning operation.
+#Values above 500000 are rejected before planning.
 # Default: 150000
 # Range: > 1
 maximumGeneratorQueries = 5000
 #Terrain blend width in blocks outside the structure footprint.
+#Values above 128 are rejected before planning.
 # Default: 24
 # Range: 1 ~ 30000000
 blendWidth = 24
@@ -56,8 +60,10 @@ maximumPerimeterError = 4
 # Default: 0.05
 # Range: 0.0 ~ 1.0
 maximumWaterFraction = 0.05
-#Whether entities stored in the structure template are placed.
-placeTemplateEntities = false
+#Whether supported standalone entities stored in the structure template are placed. Unsupported entity entries are warned and skipped; players, passengers, invalid structural coordinates, and safety-limit violations reject placement.
+placeTemplateEntities = true
+#Whether every column in the vanilla spawnRadius area must be safe. When false, only the exact spawn marker is validated.
+requireSafeSpawnArea = false
 #Whether non-preferred land biomes may be accepted with lower priority.
 allowUnlistedLandBiomes = true
 #Biome tags excluded from site selection.
@@ -69,4 +75,3 @@ additionalPreferredBiomes = []
 #Additional biome IDs excluded from site selection.
 additionalExcludedBiomes = []
 #Additional biome tag IDs excluded from site selection.
-additionalExcludedBiomeTags = []

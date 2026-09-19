@@ -18,6 +18,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 
 public final class PlacementPreparation {
+    static final int TREE_OBSERVATION_MARGIN = 12;
+
     private PlacementPreparation() {
     }
 
@@ -47,14 +49,23 @@ public final class PlacementPreparation {
                 .loadDefinition(source);
         RotatedStructureView structure =
                 validateAssetAndGeometry(plan, definition, config);
+        TemplatePlacementPlanner.validateBlockEntities(
+                plan,
+                definition,
+                structure);
         PlacementBounds bounds = PlacementBounds.calculate(
                 structure,
                 plan.candidate().placementOrigin(),
                 config.blendWidth());
         validatePersistedBounds(plan, bounds);
-        List<ChunkPos> chunks = bounds.requiredChunks();
+        bounds.validateAffectedColumnLimit();
+        PlacementBounds treeObservationBounds =
+                bounds.expandedBy(TREE_OBSERVATION_MARGIN);
+        List<ChunkPos> chunks =
+                treeObservationBounds.requiredChunks();
 
         ChunkTicketLease lease = null;
+        PreparedTemplateEntities entities = null;
         try {
             lease = ChunkTicketLease.acquire(level, chunks);
             GeneratedSiteValidation validation =
@@ -64,16 +75,34 @@ public final class PlacementPreparation {
                             structure,
                             bounds,
                             config);
+            entities =
+                    TemplateEntityPlacementPlanner.prepare(
+                            level,
+                            plan,
+                            definition,
+                            structure,
+                            bounds,
+                            chunks,
+                            config);
             return new PreparedPlacement(
                     level,
                     data,
                     definition,
                     structure,
                     bounds,
+                    treeObservationBounds,
                     chunks,
                     validation,
+                    entities,
                     lease);
         } catch (RuntimeException | Error failure) {
+            if (entities != null) {
+                try {
+                    entities.close();
+                } catch (RuntimeException releaseFailure) {
+                    failure.addSuppressed(releaseFailure);
+                }
+            }
             if (lease != null) {
                 try {
                     lease.close();
