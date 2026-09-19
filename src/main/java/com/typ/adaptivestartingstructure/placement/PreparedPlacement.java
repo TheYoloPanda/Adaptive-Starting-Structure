@@ -14,8 +14,10 @@ public final class PreparedPlacement implements AutoCloseable {
     private final StructureDefinition definition;
     private final RotatedStructureView structure;
     private final PlacementBounds bounds;
+    private final PlacementBounds treeObservationBounds;
     private final List<ChunkPos> chunks;
     private final GeneratedSiteValidation validation;
+    private final PreparedTemplateEntities entities;
     private final ChunkTicketLease lease;
     private boolean closed;
 
@@ -25,17 +27,29 @@ public final class PreparedPlacement implements AutoCloseable {
             StructureDefinition definition,
             RotatedStructureView structure,
             PlacementBounds bounds,
+            PlacementBounds treeObservationBounds,
             List<ChunkPos> chunks,
             GeneratedSiteValidation validation,
+            PreparedTemplateEntities entities,
             ChunkTicketLease lease) {
         this.level = Objects.requireNonNull(level, "level");
         this.savedData = Objects.requireNonNull(savedData, "savedData");
         this.definition = Objects.requireNonNull(definition, "definition");
         this.structure = Objects.requireNonNull(structure, "structure");
         this.bounds = Objects.requireNonNull(bounds, "bounds");
+        this.treeObservationBounds = Objects.requireNonNull(
+                treeObservationBounds,
+                "treeObservationBounds");
         this.chunks = List.copyOf(chunks);
         this.validation = Objects.requireNonNull(validation, "validation");
+        this.entities = Objects.requireNonNull(
+                entities,
+                "entities");
         this.lease = Objects.requireNonNull(lease, "lease");
+        if (!this.treeObservationBounds.contains(this.bounds)) {
+            throw new IllegalArgumentException(
+                    "Tree observation bounds must contain placement bounds");
+        }
         if (this.chunks.isEmpty()
                 || !this.chunks.equals(lease.chunks())) {
             throw new IllegalArgumentException(
@@ -68,6 +82,11 @@ public final class PreparedPlacement implements AutoCloseable {
         return bounds;
     }
 
+    public PlacementBounds treeObservationBounds() {
+        ensureOpen();
+        return treeObservationBounds;
+    }
+
     public List<ChunkPos> chunks() {
         ensureOpen();
         return chunks;
@@ -76,6 +95,11 @@ public final class PreparedPlacement implements AutoCloseable {
     public GeneratedSiteValidation validation() {
         ensureOpen();
         return validation;
+    }
+
+    public PreparedTemplateEntities entities() {
+        ensureOpen();
+        return entities;
     }
 
     public boolean isClosed() {
@@ -88,7 +112,25 @@ public final class PreparedPlacement implements AutoCloseable {
             return;
         }
         closed = true;
-        lease.close();
+        RuntimeException failure = null;
+        try {
+            entities.close();
+        } catch (RuntimeException entityFailure) {
+            failure = entityFailure;
+        }
+        try {
+            lease.close();
+        } catch (RuntimeException leaseFailure) {
+            if (failure == null) {
+                failure = leaseFailure;
+            } else {
+                failure.addSuppressed(
+                        leaseFailure);
+            }
+        }
+        if (failure != null) {
+            throw failure;
+        }
     }
 
     private void ensureOpen() {

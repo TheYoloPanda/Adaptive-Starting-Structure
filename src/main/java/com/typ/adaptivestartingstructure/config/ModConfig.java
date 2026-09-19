@@ -1,15 +1,29 @@
 package com.typ.adaptivestartingstructure.config;
 
+import com.typ.adaptivestartingstructure.AdaptiveStartingStructure;
 import java.util.List;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
+/**
+ * This mod's own configuration: the spec, its defaults, and the typed snapshot
+ * the rest of the mod reads.
+ *
+ * <p>Not to be confused with NeoForge's {@link net.neoforged.fml.config.ModConfig},
+ * which is the loader's handle on a config file and is referenced by its full
+ * name in {@link #register} for exactly that reason. The name here is the
+ * conventional one for a mod's config class, so it is kept.
+ */
 public final class ModConfig {
     public static final String FILE_NAME = "adaptive_starting_structure-common.toml";
 
     static final int MAX_BLOCK_DISTANCE = 30_000_000;
+    static final int MAX_COARSE_CANDIDATES = 16_384;
+    static final int MAX_FINE_CANDIDATE_COUNT = 128;
+    static final int MAX_GENERATOR_QUERIES = 500_000;
+    static final int MAX_BLEND_WIDTH = 128;
 
     static final boolean DEFAULT_ENABLED = true;
     static final int DEFAULT_PREFERRED_SEARCH_RADIUS = 1024;
@@ -34,6 +48,9 @@ public final class ModConfig {
             "minecraft:is_river",
             "minecraft:is_beach",
             "minecraft:is_mountain");
+    static final boolean DEFAULT_PLACE_PLAYER_AT_SPAWN_MARKER = true;
+    static final String DEFAULT_BLOCKED_STATE_RECOVERY =
+            BlockedStateRecovery.BLOCK.configValue();
     static final List<String> DEFAULT_ALLOWED_ROTATIONS = List.of(
             "none",
             "clockwise_90",
@@ -76,7 +93,19 @@ public final class ModConfig {
 
     private static void validateOwnedConfig(ModConfigEvent event) {
         if (event.getConfig().getSpec() == SPEC) {
-            snapshot();
+            try {
+                snapshot();
+            } catch (IllegalArgumentException failure) {
+                /*
+                 * Cross-field validation must not escape the config event.
+                 * The world lifecycle owns the recoverable/fail-closed
+                 * boundary for invalid configuration.
+                 */
+                AdaptiveStartingStructure.LOGGER.error(
+                        "Adaptive starting-structure configuration is invalid; "
+                                + "the world lifecycle will handle it at its safe boundary",
+                        failure);
+            }
         }
     }
 
@@ -103,7 +132,10 @@ public final class ModConfig {
         private final ModConfigSpec.ConfigValue<List<? extends String>> allowedRotations;
         private final ModConfigSpec.ConfigValue<List<? extends String>> additionalPreferredBiomes;
         private final ModConfigSpec.ConfigValue<List<? extends String>> additionalExcludedBiomes;
-        private final ModConfigSpec.ConfigValue<List<? extends String>> additionalExcludedBiomeTags;
+        private final ModConfigSpec.ConfigValue<List<? extends String>> removedPreferredBiomes;
+        private final ModConfigSpec.ConfigValue<List<? extends String>> removedExcludedBiomes;
+        private final ModConfigSpec.ConfigValue<String> blockedStateRecovery;
+        private final ModConfigSpec.BooleanValue placePlayerAtSpawnMarker;
 
         private Values(ModConfigSpec.Builder builder) {
             enabled = builder
@@ -138,19 +170,25 @@ public final class ModConfig {
                             1,
                             MAX_BLOCK_DISTANCE);
             maximumCoarseCandidates = builder
-                    .comment("Maximum number of candidates considered by the coarse search.")
+                    .comment(
+                            "Maximum number of candidates considered by the coarse search.",
+                            "Values above " + MAX_COARSE_CANDIDATES
+                                    + " are reset to the default when the file is loaded.")
                     .defineInRange(
                             "maximumCoarseCandidates",
                             DEFAULT_MAXIMUM_COARSE_CANDIDATES,
                             1,
-                            Integer.MAX_VALUE);
+                            MAX_COARSE_CANDIDATES);
             fineCandidateCount = builder
-                    .comment("Number of top coarse candidates evaluated by the fine search.")
+                    .comment(
+                            "Number of top coarse candidates evaluated by the fine search.",
+                            "Values above " + MAX_FINE_CANDIDATE_COUNT
+                                    + " are reset to the default when the file is loaded.")
                     .defineInRange(
                             "fineCandidateCount",
                             DEFAULT_FINE_CANDIDATE_COUNT,
                             1,
-                            Integer.MAX_VALUE);
+                            MAX_FINE_CANDIDATE_COUNT);
             fineSampleStep = builder
                     .comment("Sampling step in blocks during fine evaluation.")
                     .defineInRange(
@@ -159,15 +197,21 @@ public final class ModConfig {
                             1,
                             MAX_BLOCK_DISTANCE);
             maximumGeneratorQueries = builder
-                    .comment("Maximum generator queries allowed for one planning operation.")
+                    .comment(
+                            "Maximum generator queries allowed for one planning operation.",
+                            "Values above " + MAX_GENERATOR_QUERIES
+                                    + " are reset to the default when the file is loaded.")
                     .defineInRange(
                             "maximumGeneratorQueries",
                             DEFAULT_MAXIMUM_GENERATOR_QUERIES,
                             1,
-                            Integer.MAX_VALUE);
+                            MAX_GENERATOR_QUERIES);
             blendWidth = builder
-                    .comment("Terrain blend width in blocks outside the structure footprint.")
-                    .defineInRange("blendWidth", DEFAULT_BLEND_WIDTH, 1, MAX_BLOCK_DISTANCE);
+                    .comment(
+                            "Terrain blend width in blocks outside the structure footprint.",
+                            "Values above " + MAX_BLEND_WIDTH
+                                    + " are reset to the default when the file is loaded.")
+                    .defineInRange("blendWidth", DEFAULT_BLEND_WIDTH, 1, MAX_BLEND_WIDTH);
             maximumCutDepth = builder
                     .comment("Maximum number of blocks that terrain may be cut.")
                     .defineInRange("maximumCutDepth", DEFAULT_MAXIMUM_CUT_DEPTH, 0, MAX_BLOCK_DISTANCE);
@@ -192,7 +236,10 @@ public final class ModConfig {
                     .comment("Maximum fraction of sampled columns that may contain water.")
                     .defineInRange("maximumWaterFraction", DEFAULT_MAXIMUM_WATER_FRACTION, 0.0D, 1.0D);
             placeTemplateEntities = builder
-                    .comment("Whether entities stored in the structure template are placed.")
+                    .comment(
+                            "Whether supported standalone entities stored in the structure template are placed. "
+                                    + "Unsupported entity entries are warned and skipped; players, passengers, "
+                                    + "invalid structural coordinates, and safety-limit violations reject placement.")
                     .define("placeTemplateEntities", DEFAULT_PLACE_TEMPLATE_ENTITIES);
             requireSafeSpawnArea = builder
                     .comment(
@@ -203,7 +250,9 @@ public final class ModConfig {
                     .comment("Whether non-preferred land biomes may be accepted with lower priority.")
                     .define("allowUnlistedLandBiomes", DEFAULT_ALLOW_UNLISTED_LAND_BIOMES);
             excludedBiomeTags = builder
-                    .comment("Biome tags excluded from site selection.")
+                    .comment(
+                            "Biome tags excluded from site selection.",
+                            "This list is the whole list: add your own tags to it.")
                     .defineListAllowEmpty(
                             "excludedBiomeTags",
                             DEFAULT_EXCLUDED_BIOME_TAGS,
@@ -230,13 +279,47 @@ public final class ModConfig {
                             List.of(),
                             () -> "example:excluded_biome",
                             ConfigSnapshot::isResourceLocation);
-            additionalExcludedBiomeTags = builder
-                    .comment("Additional biome tag IDs excluded from site selection.")
+            removedPreferredBiomes = builder
+                    .comment(
+                            "Biome IDs to drop from the built-in preferred list.",
+                            "Unknown IDs are ignored with a warning.")
                     .defineListAllowEmpty(
-                            "additionalExcludedBiomeTags",
+                            "removedPreferredBiomes",
                             List.of(),
-                            () -> "example:excluded_biomes",
+                            () -> "minecraft:badlands",
                             ConfigSnapshot::isResourceLocation);
+            removedExcludedBiomes = builder
+                    .comment(
+                            "Biome IDs to drop from the built-in excluded list.",
+                            "Unknown IDs are ignored with a warning.")
+                    .defineListAllowEmpty(
+                            "removedExcludedBiomes",
+                            List.of(),
+                            () -> "minecraft:meadow",
+                            ConfigSnapshot::isResourceLocation);
+            blockedStateRecovery = builder
+                    .comment(
+                            "What to do with a world whose starting-structure state blocks startup, "
+                                    + "which happens when the game died during placement.",
+                            "'block' refuses to start so the half-modified world is not accepted silently.",
+                            "'skip' gives up on the starting structure and loads the world as it is, "
+                                    + "which may leave partial terrain or structure blocks behind.")
+                    .define(
+                            "blockedStateRecovery",
+                            DEFAULT_BLOCKED_STATE_RECOVERY,
+                            ConfigSnapshot::isKnownBlockedStateRecovery);
+            placePlayerAtSpawnMarker = builder
+                    .comment(
+                            "Whether a player who arrives at the world spawn is moved onto the "
+                                    + "structure's spawn marker.",
+                            "Vanilla picks a column near the world spawn and puts the player on that "
+                                    + "column's surface, which for a structure with a roof is the roof, "
+                                    + "so the marker is otherwise rarely where anyone actually arrives.",
+                            "Only applies to players with no bed or charged respawn anchor who arrive "
+                                    + "inside the vanilla spawn area, and only until placed once.")
+                    .define(
+                            "placePlayerAtSpawnMarker",
+                            DEFAULT_PLACE_PLAYER_AT_SPAWN_MARKER);
         }
 
         private ConfigSnapshot snapshot(boolean defaults) {
@@ -263,7 +346,10 @@ public final class ModConfig {
                     read(allowedRotations, defaults),
                     read(additionalPreferredBiomes, defaults),
                     read(additionalExcludedBiomes, defaults),
-                    read(additionalExcludedBiomeTags, defaults));
+                    read(removedPreferredBiomes, defaults),
+                    read(removedExcludedBiomes, defaults),
+                    read(blockedStateRecovery, defaults),
+                    read(placePlayerAtSpawnMarker, defaults));
         }
 
         private static <T> T read(ModConfigSpec.ConfigValue<T> value, boolean defaults) {

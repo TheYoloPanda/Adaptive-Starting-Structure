@@ -85,6 +85,71 @@ public final class StartingStructureStorage {
         data.setDirty(false);
     }
 
+    public static void persistAwaitingDecision(
+            ServerLevel level,
+            StartingStructureSavedData data,
+            FallbackDecision decision) throws IOException {
+        requireOverworld(level);
+        Objects.requireNonNull(data, "data");
+        Objects.requireNonNull(decision, "decision");
+        if (data.state()
+                != StartingStructureSavedData.State.PLANNED) {
+            throw new IOException(
+                    "Expected starting-structure state PLANNED before persisting AWAITING_DECISION, found "
+                            + data.state());
+        }
+        StartingStructureSavedData cached =
+                level.getDataStorage().get(
+                        StartingStructureSavedData.FACTORY,
+                        StartingStructureSavedData.DATA_NAME);
+        if (cached != data) {
+            throw new IOException(
+                    "Refusing to persist a starting-structure state that is not the active SavedData instance");
+        }
+        Path dataFile = dataFile(level);
+        if (!Files.isRegularFile(
+                dataFile,
+                LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException(
+                    "Starting-structure data file is missing or not regular: "
+                            + dataFile);
+        }
+
+        CompoundTag next = data.saveAwaitingDecision(
+                new CompoundTag(),
+                level.registryAccess(),
+                decision);
+        writeEncodedStateFile(
+                dataFile,
+                encodeDataTag(next));
+        data.markAwaitingDecision(decision);
+        data.setDirty(false);
+    }
+
+    public static void persistFallbackApplying(
+            ServerLevel level,
+            StartingStructureSavedData data) throws IOException {
+        persistFallbackTransition(
+                level,
+                data,
+                StartingStructureSavedData.State.AWAITING_DECISION,
+                StartingStructureSavedData.State.FALLBACK_APPLYING);
+        data.markFallbackApplying();
+        data.setDirty(false);
+    }
+
+    public static void persistSkipped(
+            ServerLevel level,
+            StartingStructureSavedData data) throws IOException {
+        persistFallbackTransition(
+                level,
+                data,
+                StartingStructureSavedData.State.FALLBACK_APPLYING,
+                StartingStructureSavedData.State.SKIPPED);
+        data.markSkipped();
+        data.setDirty(false);
+    }
+
     static void writeInitialFile(
             Path dataFile,
             StartingStructureSavedData data,
@@ -141,12 +206,78 @@ public final class StartingStructureStorage {
     private static CompoundTag encode(
             StartingStructureSavedData data,
             HolderLookup.Provider registries) {
-        CompoundTag root = new CompoundTag();
-        root.put(
-                "data",
+        return encodeDataTag(
                 data.save(new CompoundTag(), registries));
+    }
+
+    private static CompoundTag encodeDataTag(
+            CompoundTag dataTag) {
+        CompoundTag root = new CompoundTag();
+        root.put("data", dataTag);
         NbtUtils.addCurrentDataVersion(root);
         return root;
+    }
+
+    private static void persistFallbackTransition(
+            ServerLevel level,
+            StartingStructureSavedData data,
+            StartingStructureSavedData.State expected,
+            StartingStructureSavedData.State target)
+            throws IOException {
+        requireOverworld(level);
+        Objects.requireNonNull(data, "data");
+        if (data.state() != expected) {
+            throw new IOException(
+                    "Expected starting-structure state "
+                            + expected
+                            + " before persisting "
+                            + target
+                            + ", found "
+                            + data.state());
+        }
+        StartingStructureSavedData cached =
+                level.getDataStorage().get(
+                        StartingStructureSavedData.FACTORY,
+                        StartingStructureSavedData.DATA_NAME);
+        if (cached != data) {
+            throw new IOException(
+                    "Refusing to persist a starting-structure state that is not the active SavedData instance");
+        }
+        Path dataFile = dataFile(level);
+        if (!Files.isRegularFile(
+                dataFile,
+                LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException(
+                    "Starting-structure data file is missing or not regular: "
+                            + dataFile);
+        }
+        CompoundTag next = data.save(
+                new CompoundTag(),
+                level.registryAccess());
+        next.putString("State", target.name());
+        writeEncodedStateFile(
+                dataFile,
+                encodeDataTag(next));
+    }
+
+    private static void writeEncodedStateFile(
+            Path dataFile,
+            CompoundTag root) throws IOException {
+        Path normalizedFile =
+                dataFile.toAbsolutePath().normalize();
+        Path parent = normalizedFile.getParent();
+        if (parent == null
+                || !Files.isDirectory(
+                        parent,
+                        LinkOption.NOFOLLOW_LINKS)
+                || Files.isSymbolicLink(parent)) {
+            throw new IOException(
+                    "Starting-structure data directory is missing, invalid, or symbolic: "
+                            + parent);
+        }
+        IOUtilities.writeNbtCompressed(
+                root,
+                normalizedFile);
     }
 
     private static Path dataFile(ServerLevel level) {

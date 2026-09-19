@@ -47,10 +47,11 @@ final class TerrainSnapshotCapture {
                 "vegetationClassifier");
         if (targetGroundY < world.minimumBuildHeight()
                 || targetGroundY >= world.maximumBuildHeight()) {
-            throw new PlacementPreparationException(
+            throw new UnsuitableGeneratedSiteException(
                     "Terrain contact plane is outside build height");
         }
 
+        bounds.validateAffectedColumnLimit();
         List<TerrainColumnSnapshot> columns = new ArrayList<>(
                 Math.toIntExact(bounds.affectedColumnCount()));
         for (int x = bounds.minimumAffectedX(); ; x++) {
@@ -91,7 +92,7 @@ final class TerrainSnapshotCapture {
                 || terrainHeight > world.maximumBuildHeight()
                 || surfaceHeight < terrainHeight
                 || surfaceHeight > world.maximumBuildHeight()) {
-            throw new PlacementPreparationException(
+            throw new UnsuitableGeneratedSiteException(
                     "Cannot snapshot invalid terrain heights at ["
                             + x + ", " + z + "]");
         }
@@ -112,7 +113,7 @@ final class TerrainSnapshotCapture {
                         surfaceHeight,
                         addClamped(targetGroundY, 1)));
         if (maximumCapturedYExclusive <= minimumCapturedY) {
-            throw new PlacementPreparationException(
+            throw new UnsuitableGeneratedSiteException(
                     "Terrain snapshot range is empty at ["
                             + x + ", " + z + "]");
         }
@@ -145,7 +146,7 @@ final class TerrainSnapshotCapture {
         if (!TerrainSurfaceClassifier.isTerrainMaterial(
                 surfaceMaterial,
                 vegetationClassifier)) {
-            throw new PlacementPreparationException(
+            throw new UnsuitableGeneratedSiteException(
                     "Generated terrain has no solid surface material at ["
                             + x + ", " + groundY + ", " + z + "]");
         }

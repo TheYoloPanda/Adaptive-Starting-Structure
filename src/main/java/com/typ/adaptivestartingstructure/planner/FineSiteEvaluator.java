@@ -8,19 +8,27 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import net.minecraft.core.BlockPos;
 import net.minecraft.tags.FluidTags;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.Fluids;
 
 public final class FineSiteEvaluator {
     private static final Comparator<FineCandidateEvaluation> ACCEPTED_ORDER =
-            Comparator.comparingDouble(
+            Comparator.comparing(
                             (FineCandidateEvaluation evaluation) ->
-                                    requiredMetrics(evaluation).fitCost())
+                                    evaluation.candidate()
+                                            .metrics()
+                                            .structureConflict())
+                    .thenComparingDouble(evaluation ->
+                            requiredMetrics(evaluation).fitCost())
                     .thenComparingInt(evaluation ->
                             requiredMetrics(evaluation).biomeClassification().ordinal())
                     .thenComparingLong(evaluation ->
@@ -43,27 +51,89 @@ public final class FineSiteEvaluator {
         Objects.requireNonNull(queries, "queries");
         Objects.requireNonNull(coarseCandidates, "coarseCandidates");
 
-        int finalistCount = Math.min(config.fineCandidateCount(), coarseCandidates.size());
+        List<CoarseCandidate> finalists = selectFinalists(
+                coarseCandidates,
+                config.fineCandidateCount());
+        int finalistCount = finalists.size();
         List<FineCandidateEvaluation> evaluations = new ArrayList<>(finalistCount);
         List<FineCandidateEvaluation> accepted = new ArrayList<>(finalistCount);
+        GeneratorQueryBudgetExceededException budgetFailure = null;
+        Map<Rotation, Map<Long, ColumnAir>> airByRotation = new HashMap<>();
         for (int index = 0; index < finalistCount; index++) {
-            FineCandidateEvaluation evaluation = evaluateCandidate(
-                    config,
-                    queries,
-                    Objects.requireNonNull(coarseCandidates.get(index), "coarseCandidate"));
+            CoarseCandidate candidate = Objects.requireNonNull(
+                    finalists.get(index),
+                    "coarseCandidate");
+            FineCandidateEvaluation evaluation;
+            try {
+                evaluation = evaluateCandidate(
+                        config,
+                        queries,
+                        candidate,
+                        airByRotation.computeIfAbsent(
+                                candidate.rotation(),
+                                ignored -> explicitAirByColumn(candidate.structure())));
+            } catch (GeneratorQueryBudgetExceededException failure) {
+                /*
+                 * The finalist under evaluation is incomplete and cannot be
+                 * counted either way, but the ones already evaluated are
+                 * whole and stay in the result.
+                 */
+                budgetFailure = failure;
+                break;
+            }
             evaluations.add(evaluation);
             if (evaluation.accepted()) {
                 accepted.add(evaluation);
             }
         }
         accepted.sort(ACCEPTED_ORDER);
-        return new FineSearchResult(evaluations, accepted);
+        return new FineSearchResult(
+                evaluations,
+                accepted,
+                Optional.ofNullable(budgetFailure));
+    }
+
+    /**
+     * The candidates worth a full evaluation, one position at a time.
+     *
+     * <p>The coarse search ranks every rotation of a position separately, and
+     * rotations that share a bounding box score identically, so the top of the
+     * list can be four entries for the same place. Spending the finalist slots
+     * that way narrows the search to a handful of positions; taking each
+     * position's best rotation first and only then filling with the remaining
+     * rotations keeps the same count of slots covering far more ground.
+     */
+    private static List<CoarseCandidate> selectFinalists(
+            List<CoarseCandidate> coarseCandidates,
+            int finalistCount) {
+        int limit = Math.min(finalistCount, coarseCandidates.size());
+        List<CoarseCandidate> finalists = new ArrayList<>(limit);
+        List<CoarseCandidate> duplicates = new ArrayList<>();
+        Set<Long> seenCenters = new HashSet<>();
+        for (CoarseCandidate candidate : coarseCandidates) {
+            if (finalists.size() == limit) {
+                break;
+            }
+            if (seenCenters.add(pack(candidate.centerX(), candidate.centerZ()))) {
+                finalists.add(candidate);
+            } else if (duplicates.size() < limit) {
+                duplicates.add(candidate);
+            }
+        }
+        for (CoarseCandidate candidate : duplicates) {
+            if (finalists.size() == limit) {
+                break;
+            }
+            finalists.add(candidate);
+        }
+        return finalists;
     }
 
     private static FineCandidateEvaluation evaluateCandidate(
             ConfigSnapshot config,
             PlannerQueryContext queries,
-            CoarseCandidate candidate) {
+            CoarseCandidate candidate,
+            Map<Long, ColumnAir> explicitAirByColumn) {
         EnumSet<FineRejectionReason> reasons =
                 EnumSet.noneOf(FineRejectionReason.class);
         FineSamplingGeometry geometry = FineSamplingGeometry.create(candidate, config);
@@ -135,18 +205,27 @@ public final class FineSiteEvaluator {
             reasons.add(FineRejectionReason.STRUCTURE_OUTSIDE_BUILD_HEIGHT);
         }
 
-        Map<Long, List<Integer>> explicitAirByColumn =
-                explicitAirByColumn(candidate.structure());
+        int placementOriginY = plan.placementOrigin().getY();
         int waterColumns = 0;
         for (int index = 0; index < geometry.samplePoints().size(); index++) {
             FineSamplingGeometry.SamplePoint point = geometry.samplePoints().get(index);
             ColumnObservation observation = observations[index];
             boolean inspectSurface =
                     observation.worldSurfaceHeight > observation.terrainHeight;
-            List<Integer> explicitAirY = point.footprint()
+            ColumnAir columnAir = point.footprint()
                     ? explicitAirByColumn.get(localKey(candidate, point))
                     : null;
-            if (!inspectSurface && explicitAirY == null) {
+            /*
+             * Explicit air that sits entirely at or above the worldgen surface
+             * cannot meet a fluid: the noise column is air up there by
+             * definition. Reading the column anyway made the most expensive
+             * query in planning near-mandatory for every footprint sample of
+             * any structure with a hollow interior.
+             */
+            boolean inspectAir = columnAir != null
+                    && (long) placementOriginY + columnAir.minimumRelativeY()
+                            < observation.worldSurfaceHeight;
+            if (!inspectSurface && !inspectAir) {
                 continue;
             }
 
@@ -157,13 +236,13 @@ public final class FineSiteEvaluator {
                             observation.terrainHeight,
                             observation.worldSurfaceHeight)
                     : SurfaceFluid.NONE;
-            if (explicitAirY != null) {
+            if (inspectAir) {
                 fluid = combineFluids(
                         fluid,
                         classifyExplicitAirFluids(
                                 column,
-                                explicitAirY,
-                                plan.placementOrigin().getY()));
+                                columnAir.relativeY(),
+                                placementOriginY));
             }
             if (fluid == SurfaceFluid.UNSUPPORTED) {
                 reasons.add(FineRejectionReason.LAVA_OR_UNSUPPORTED_FLUID);
@@ -282,16 +361,36 @@ public final class FineSiteEvaluator {
                 geometry.maximumBlendZ());
     }
 
-    private static Map<Long, List<Integer>> explicitAirByColumn(
+    /**
+     * The explicit-air heights of one rotated structure, grouped by column and
+     * carrying each column's lowest one.
+     *
+     * <p>This depends only on the rotated structure, not on where it is being
+     * placed, so it is built once per rotation instead of once per finalist: a
+     * structure with a hollow interior can hold tens of thousands of these
+     * positions.
+     */
+    private static Map<Long, ColumnAir> explicitAirByColumn(
             RotatedStructureView structure) {
-        Map<Long, List<Integer>> positions = new HashMap<>();
+        Map<Long, List<Integer>> grouped = new HashMap<>();
         for (BlockPos position : structure.explicitAirPositions()) {
-            positions.computeIfAbsent(
+            grouped.computeIfAbsent(
                             pack(position.getX(), position.getZ()),
                             ignored -> new ArrayList<>())
                     .add(position.getY());
         }
-        return positions;
+        Map<Long, ColumnAir> columns = new HashMap<>(grouped.size());
+        grouped.forEach((key, heights) -> {
+            int minimum = Integer.MAX_VALUE;
+            for (int height : heights) {
+                minimum = Math.min(minimum, height);
+            }
+            columns.put(key, new ColumnAir(List.copyOf(heights), minimum));
+        });
+        return columns;
+    }
+
+    private record ColumnAir(List<Integer> relativeY, int minimumRelativeY) {
     }
 
     private static SurfaceFluid classifyExplicitAirFluids(

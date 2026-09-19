@@ -16,12 +16,14 @@ public final class PlannerQueryContext {
     private final PlannerWorldQuerySource source;
     private final BiomeClassifier biomeClassifier;
     private final int maximumQueries;
+    private int phaseLimit;
     private final BlockPos suggestedSpawnOrigin;
     private final int minBuildHeight;
     private final int maxBuildHeight;
     private final Map<HeightQuery, Integer> heightCache = new HashMap<>();
     private final Map<ColumnQuery, TerrainColumn> columnCache = new HashMap<>();
     private final Map<BiomeQuery, BiomeSample> biomeCache = new HashMap<>();
+    private final Map<StructureQuery, Boolean> structureCache = new HashMap<>();
     private int queriesUsed;
 
     public PlannerQueryContext(
@@ -34,6 +36,7 @@ public final class PlannerQueryContext {
             throw new IllegalArgumentException("maximumQueries must be positive");
         }
         this.maximumQueries = maximumQueries;
+        this.phaseLimit = maximumQueries;
         this.minBuildHeight = source.minBuildHeight();
         this.maxBuildHeight = source.maxBuildHeight();
         if (maxBuildHeight <= minBuildHeight) {
@@ -118,6 +121,41 @@ public final class PlannerQueryContext {
         return source.isWithinWorldBorder(x, z);
     }
 
+    /**
+     * Whether a generated structure may start inside the given chunk box.
+     *
+     * <p>Unlike the other queries this one reads no terrain: it is seed and
+     * salt arithmetic over structure placements. It is therefore not charged
+     * to the generator budget, which exists to bound how much of the world's
+     * noise a planning run samples.
+     */
+    public boolean mayContainStructureStart(
+            int minChunkX,
+            int minChunkZ,
+            int maxChunkX,
+            int maxChunkZ) {
+        StructureQuery key = new StructureQuery(
+                minChunkX,
+                minChunkZ,
+                maxChunkX,
+                maxChunkZ);
+        Boolean cached = structureCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        boolean present = source.mayContainStructureStart(
+                minChunkX,
+                minChunkZ,
+                maxChunkX,
+                maxChunkZ);
+        structureCache.put(key, present);
+        return present;
+    }
+
+    public int structureCacheSize() {
+        return structureCache.size();
+    }
+
     public int minBuildHeight() {
         return minBuildHeight;
     }
@@ -128,6 +166,24 @@ public final class PlannerQueryContext {
 
     public int maximumQueries() {
         return maximumQueries;
+    }
+
+    /**
+     * Caps the phase that runs next at {@code phaseLimit} total queries,
+     * keeping the rest of the budget available for the phases after it.
+     * A planning phase that stops on its own limit can still hand its
+     * partial result to the next one, which is what turns an exhausted
+     * budget into a smaller plan instead of no plan at all.
+     */
+    public void limitNextPhase(int phaseLimit) {
+        if (phaseLimit <= 0) {
+            throw new IllegalArgumentException("phaseLimit must be positive");
+        }
+        this.phaseLimit = Math.min(maximumQueries, phaseLimit);
+    }
+
+    public int phaseLimit() {
+        return phaseLimit;
     }
 
     public int queriesUsed() {
@@ -147,9 +203,10 @@ public final class PlannerQueryContext {
     }
 
     private void consumeQuery(String attemptedQuery) {
-        if (queriesUsed >= maximumQueries) {
+        if (queriesUsed >= phaseLimit) {
             throw new GeneratorQueryBudgetExceededException(
                     maximumQueries,
+                    phaseLimit,
                     queriesUsed,
                     attemptedQuery);
         }
@@ -163,5 +220,12 @@ public final class PlannerQueryContext {
     }
 
     private record BiomeQuery(int quartX, int quartY, int quartZ) {
+    }
+
+    private record StructureQuery(
+            int minChunkX,
+            int minChunkZ,
+            int maxChunkX,
+            int maxChunkZ) {
     }
 }

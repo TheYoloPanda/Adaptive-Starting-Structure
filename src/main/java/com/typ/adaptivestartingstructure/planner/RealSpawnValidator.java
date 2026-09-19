@@ -34,6 +34,19 @@ public final class RealSpawnValidator {
                 level);
     }
 
+    public static SpawnValidationResult validate(
+            ServerLevel level,
+            BlockPos spawnFeet,
+            StructureBounds safeBounds,
+            int configuredRadius) {
+        Objects.requireNonNull(level, "level");
+        return validate(
+                configuredRadius,
+                spawnFeet,
+                safeBounds,
+                level);
+    }
+
     static SpawnValidationResult validate(
             GameRules gameRules,
             BlockPos spawnFeet,

@@ -31,7 +31,9 @@ public record ConfigSnapshot(
         List<Rotation> allowedRotations,
         Set<ResourceLocation> preferredBiomes,
         Set<ResourceLocation> excludedBiomes,
-        Set<ResourceLocation> excludedBiomeTags) {
+        Set<ResourceLocation> excludedBiomeTags,
+        BlockedStateRecovery blockedStateRecovery,
+        boolean placePlayerAtSpawnMarker) {
 
     private static final Set<ResourceLocation> BASE_PREFERRED_BIOMES = resourceLocations(
             "minecraft:plains",
@@ -73,16 +75,84 @@ public record ConfigSnapshot(
             "minecraft:frozen_peaks",
             "minecraft:stony_peaks");
 
+    /** A snapshot that refuses to start a world stuck in a blocked state. */
+    public ConfigSnapshot(
+            boolean enabled,
+            int preferredSearchRadius,
+            int maximumSearchRadius,
+            int nearCandidateSpacing,
+            int farCandidateSpacing,
+            int maximumCoarseCandidates,
+            int fineCandidateCount,
+            int fineSampleStep,
+            int maximumGeneratorQueries,
+            int blendWidth,
+            int maximumCutDepth,
+            int maximumFillDepth,
+            int maximumElevationRange,
+            int maximumPerimeterError,
+            double maximumWaterFraction,
+            boolean placeTemplateEntities,
+            boolean requireSafeSpawnArea,
+            boolean allowUnlistedLandBiomes,
+            List<Rotation> allowedRotations,
+            Set<ResourceLocation> preferredBiomes,
+            Set<ResourceLocation> excludedBiomes,
+            Set<ResourceLocation> excludedBiomeTags) {
+        this(
+                enabled,
+                preferredSearchRadius,
+                maximumSearchRadius,
+                nearCandidateSpacing,
+                farCandidateSpacing,
+                maximumCoarseCandidates,
+                fineCandidateCount,
+                fineSampleStep,
+                maximumGeneratorQueries,
+                blendWidth,
+                maximumCutDepth,
+                maximumFillDepth,
+                maximumElevationRange,
+                maximumPerimeterError,
+                maximumWaterFraction,
+                placeTemplateEntities,
+                requireSafeSpawnArea,
+                allowUnlistedLandBiomes,
+                allowedRotations,
+                preferredBiomes,
+                excludedBiomes,
+                excludedBiomeTags,
+                BlockedStateRecovery.BLOCK,
+                ModConfig.DEFAULT_PLACE_PLAYER_AT_SPAWN_MARKER);
+    }
+
     public ConfigSnapshot {
+        Objects.requireNonNull(blockedStateRecovery, "blockedStateRecovery");
         validateRange("preferredSearchRadius", preferredSearchRadius, 0, ModConfig.MAX_BLOCK_DISTANCE);
         validateRange("maximumSearchRadius", maximumSearchRadius, 0, ModConfig.MAX_BLOCK_DISTANCE);
         validateRange("nearCandidateSpacing", nearCandidateSpacing, 1, ModConfig.MAX_BLOCK_DISTANCE);
         validateRange("farCandidateSpacing", farCandidateSpacing, 1, ModConfig.MAX_BLOCK_DISTANCE);
-        validateRange("maximumCoarseCandidates", maximumCoarseCandidates, 1, Integer.MAX_VALUE);
-        validateRange("fineCandidateCount", fineCandidateCount, 1, Integer.MAX_VALUE);
+        validateRange(
+                "maximumCoarseCandidates",
+                maximumCoarseCandidates,
+                1,
+                ModConfig.MAX_COARSE_CANDIDATES);
+        validateRange(
+                "fineCandidateCount",
+                fineCandidateCount,
+                1,
+                ModConfig.MAX_FINE_CANDIDATE_COUNT);
         validateRange("fineSampleStep", fineSampleStep, 1, ModConfig.MAX_BLOCK_DISTANCE);
-        validateRange("maximumGeneratorQueries", maximumGeneratorQueries, 1, Integer.MAX_VALUE);
-        validateRange("blendWidth", blendWidth, 1, ModConfig.MAX_BLOCK_DISTANCE);
+        validateRange(
+                "maximumGeneratorQueries",
+                maximumGeneratorQueries,
+                1,
+                ModConfig.MAX_GENERATOR_QUERIES);
+        validateRange(
+                "blendWidth",
+                blendWidth,
+                1,
+                ModConfig.MAX_BLEND_WIDTH);
         validateRange("maximumCutDepth", maximumCutDepth, 0, ModConfig.MAX_BLOCK_DISTANCE);
         validateRange("maximumFillDepth", maximumFillDepth, 0, ModConfig.MAX_BLOCK_DISTANCE);
         validateRange("maximumElevationRange", maximumElevationRange, 0, ModConfig.MAX_BLOCK_DISTANCE);
@@ -202,21 +272,32 @@ public record ConfigSnapshot(
             List<? extends String> allowedRotations,
             List<? extends String> additionalPreferredBiomes,
             List<? extends String> additionalExcludedBiomes,
-            List<? extends String> additionalExcludedBiomeTags) {
-        Set<ResourceLocation> preferredBiomes = mergeAdditional(
-                "additionalPreferredBiomes",
-                BASE_PREFERRED_BIOMES,
-                parseResourceLocations("additionalPreferredBiomes", additionalPreferredBiomes));
-        Set<ResourceLocation> excludedBiomes = mergeAdditional(
-                "additionalExcludedBiomes",
-                BASE_EXCLUDED_BIOMES,
-                parseResourceLocations("additionalExcludedBiomes", additionalExcludedBiomes));
-        Set<ResourceLocation> parsedExcludedTags =
+            List<? extends String> removedPreferredBiomes,
+            List<? extends String> removedExcludedBiomes,
+            String blockedStateRecovery,
+            boolean placePlayerAtSpawnMarker) {
+        Set<ResourceLocation> preferredBiomes = withoutRemoved(
+                mergeAdditional(
+                        "additionalPreferredBiomes",
+                        BASE_PREFERRED_BIOMES,
+                        parseResourceLocations(
+                                "additionalPreferredBiomes",
+                                additionalPreferredBiomes)),
+                parseResourceLocations(
+                        "removedPreferredBiomes",
+                        removedPreferredBiomes));
+        Set<ResourceLocation> excludedBiomes = withoutRemoved(
+                mergeAdditional(
+                        "additionalExcludedBiomes",
+                        BASE_EXCLUDED_BIOMES,
+                        parseResourceLocations(
+                                "additionalExcludedBiomes",
+                                additionalExcludedBiomes)),
+                parseResourceLocations(
+                        "removedExcludedBiomes",
+                        removedExcludedBiomes));
+        Set<ResourceLocation> allExcludedTags =
                 parseResourceLocations("excludedBiomeTags", excludedBiomeTags);
-        Set<ResourceLocation> allExcludedTags = mergeAdditional(
-                "additionalExcludedBiomeTags",
-                parsedExcludedTags,
-                parseResourceLocations("additionalExcludedBiomeTags", additionalExcludedBiomeTags));
 
         return new ConfigSnapshot(
                 enabled,
@@ -240,7 +321,21 @@ public record ConfigSnapshot(
                 parseRotations(allowedRotations),
                 preferredBiomes,
                 excludedBiomes,
-                allExcludedTags);
+                allExcludedTags,
+                BlockedStateRecovery.fromConfigValue(blockedStateRecovery),
+                placePlayerAtSpawnMarker);
+    }
+
+    static boolean isKnownBlockedStateRecovery(Object value) {
+        if (!(value instanceof String name)) {
+            return false;
+        }
+        try {
+            BlockedStateRecovery.fromConfigValue(name);
+            return true;
+        } catch (IllegalArgumentException invalid) {
+            return false;
+        }
     }
 
     static boolean isKnownRotation(Object value) {
@@ -302,17 +397,36 @@ public record ConfigSnapshot(
         return location == null || location.getPath().isEmpty() ? null : location;
     }
 
+    /*
+     * Naming something the defaults already name is redundant, not wrong, and
+     * refusing the whole configuration over it costs the world its structure.
+     */
     private static Set<ResourceLocation> mergeAdditional(
             String key,
             Set<ResourceLocation> base,
             Set<ResourceLocation> additional) {
         LinkedHashSet<ResourceLocation> merged = new LinkedHashSet<>(base);
-        for (ResourceLocation location : additional) {
-            if (!merged.add(location)) {
-                throw invalid(key, "contains an ID already present in the base set: '" + location + "'");
-            }
-        }
+        merged.addAll(additional);
         return Collections.unmodifiableSet(merged);
+    }
+
+    /**
+     * The set without the entries a pack asked to take out.
+     *
+     * <p>The default biome lists are the mod's opinion, not a rule: a pack that
+     * wants its starting structure in meadows, or never in badlands, has to be
+     * able to say so, and there is no other way to reach an entry the mod
+     * hardcodes.
+     */
+    private static Set<ResourceLocation> withoutRemoved(
+            Set<ResourceLocation> merged,
+            Set<ResourceLocation> removed) {
+        if (removed.isEmpty()) {
+            return merged;
+        }
+        LinkedHashSet<ResourceLocation> retained = new LinkedHashSet<>(merged);
+        retained.removeAll(removed);
+        return Collections.unmodifiableSet(retained);
     }
 
     private static <T> List<T> immutableDistinctList(String key, List<T> values) {

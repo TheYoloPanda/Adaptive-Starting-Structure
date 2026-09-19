@@ -9,7 +9,28 @@ public record CoarseCandidateMetrics(
         double meanAbsoluteGroundError,
         int sampledColumns,
         int fluidColumns,
-        BiomeClassifier.Classification biomeClassification) {
+        BiomeClassifier.Classification biomeClassification,
+        boolean structureConflict) {
+
+    /** Metrics for a site with no known generated structure nearby. */
+    public CoarseCandidateMetrics(
+            int minimumGroundY,
+            int maximumGroundY,
+            double averageGroundY,
+            double meanAbsoluteGroundError,
+            int sampledColumns,
+            int fluidColumns,
+            BiomeClassifier.Classification biomeClassification) {
+        this(
+                minimumGroundY,
+                maximumGroundY,
+                averageGroundY,
+                meanAbsoluteGroundError,
+                sampledColumns,
+                fluidColumns,
+                biomeClassification,
+                false);
+    }
 
     public CoarseCandidateMetrics {
         if (maximumGroundY < minimumGroundY) {

@@ -4,8 +4,11 @@ import com.mojang.logging.LogUtils;
 import com.typ.adaptivestartingstructure.config.ModConfig;
 import com.typ.adaptivestartingstructure.lifecycle.PlacementLifecycle;
 import com.typ.adaptivestartingstructure.lifecycle.PlacementFailureNotifier;
+import com.typ.adaptivestartingstructure.lifecycle.FallbackDecisionLifecycle;
 import com.typ.adaptivestartingstructure.lifecycle.PlanningFailureNotifier;
+import com.typ.adaptivestartingstructure.lifecycle.SpawnMarkerPlacement;
 import com.typ.adaptivestartingstructure.lifecycle.SpawnPlanningLifecycle;
+import com.typ.adaptivestartingstructure.network.FallbackNetwork;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -19,6 +22,7 @@ public final class AdaptiveStartingStructure {
 
     public AdaptiveStartingStructure(IEventBus modEventBus, ModContainer modContainer) {
         ModConfig.register(modEventBus, modContainer);
+        modEventBus.addListener(FallbackNetwork::register);
         NeoForge.EVENT_BUS.addListener(
                 SpawnPlanningLifecycle::onCreateSpawnPosition);
         NeoForge.EVENT_BUS.addListener(
@@ -28,8 +32,14 @@ public final class AdaptiveStartingStructure {
         NeoForge.EVENT_BUS.addListener(
                 PlacementFailureNotifier::onServerStopped);
         NeoForge.EVENT_BUS.addListener(
+                FallbackDecisionLifecycle::onPlayerLoggedIn);
+        NeoForge.EVENT_BUS.addListener(
                 PlanningFailureNotifier::onPlayerLoggedIn);
         NeoForge.EVENT_BUS.addListener(
                 PlanningFailureNotifier::onServerStopped);
+        NeoForge.EVENT_BUS.addListener(
+                SpawnMarkerPlacement::onPlayerLoggedIn);
+        NeoForge.EVENT_BUS.addListener(
+                SpawnMarkerPlacement::onRespawnPosition);
     }
 }

@@ -48,10 +48,26 @@ public record SiteCandidate(
             throw new IllegalArgumentException(
                     "validatedSpawnColumns must be positive");
         }
+        if (validatedSpawnColumns != 1) {
+            long diameter = 2L * effectiveSpawnRadius + 1L;
+            if (diameter > Integer.MAX_VALUE / diameter
+                    || validatedSpawnColumns
+                            != diameter * diameter) {
+                throw new IllegalArgumentException(
+                        "validatedSpawnColumns must describe either the exact "
+                                + "spawn marker or the full effective-radius square");
+            }
+        }
         if (!terrainPlan.structureBounds().contains(worldSpawn)) {
             throw new IllegalArgumentException(
                     "worldSpawn must be inside the structure bounds");
         }
+    }
+
+    public int validatedSpawnRadius() {
+        return validatedSpawnColumns == 1
+                ? 0
+                : effectiveSpawnRadius;
     }
 
     public BlockPos placementOrigin() {

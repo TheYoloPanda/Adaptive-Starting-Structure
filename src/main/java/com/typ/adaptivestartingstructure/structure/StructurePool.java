@@ -33,40 +33,50 @@ public final class StructurePool {
     }
 
     public static List<StructureSource> discover(Path configDirectory) throws IOException {
-        Path directory = structuresDirectory(configDirectory);
-        List<Path> candidates = listCandidates(directory);
-        if (candidates.isEmpty()) {
-            throw new IOException(
-                    "Structure pool directory does not contain any direct regular .nbt files: " + directory);
-        }
-
-        candidates.sort(Comparator
-                .comparing((Path path) -> fileName(path).toLowerCase(Locale.ROOT))
-                .thenComparing(StructurePool::fileName));
-
-        Map<String, Path> pathsByNormalizedId = new LinkedHashMap<>();
-        for (Path candidate : candidates) {
-            String rawId = idFromFileName(candidate);
-            String normalizedId = rawId.toLowerCase(Locale.ROOT);
-            Path duplicate = pathsByNormalizedId.putIfAbsent(normalizedId, candidate);
-            if (duplicate != null) {
-                throw new IOException(
-                        "Duplicate structure ID ignoring case: '" + rawId + "' in "
-                                + duplicate.getFileName() + " and " + candidate.getFileName());
+        Objects.requireNonNull(configDirectory, "configDirectory");
+        try {
+            Path directory = structuresDirectory(configDirectory);
+            List<Path> candidates = listCandidates(directory);
+            if (candidates.isEmpty()) {
+                throw StructurePoolException.emptyPool(directory);
             }
-        }
 
-        List<StructureSource> sources = new ArrayList<>(pathsByNormalizedId.size());
-        for (Map.Entry<String, Path> entry : pathsByNormalizedId.entrySet()) {
-            String rawId = idFromFileName(entry.getValue());
-            if (!VALID_ID.matcher(rawId).matches()) {
-                throw new IOException(
-                        "Invalid structure filename '" + entry.getValue().getFileName()
-                                + "': the ID must match [a-z0-9_.-]+");
+            candidates.sort(Comparator
+                    .comparing((Path path) -> fileName(path).toLowerCase(Locale.ROOT))
+                    .thenComparing(StructurePool::fileName));
+
+            Map<String, Path> pathsByNormalizedId = new LinkedHashMap<>();
+            for (Path candidate : candidates) {
+                String rawId = idFromFileName(candidate);
+                String normalizedId = rawId.toLowerCase(Locale.ROOT);
+                Path duplicate = pathsByNormalizedId.putIfAbsent(normalizedId, candidate);
+                if (duplicate != null) {
+                    throw StructurePoolException.duplicateId(
+                            rawId,
+                            duplicate,
+                            candidate);
+                }
             }
-            sources.add(new StructureSource(entry.getKey(), entry.getValue()));
+
+            List<StructureSource> sources = new ArrayList<>(pathsByNormalizedId.size());
+            for (Map.Entry<String, Path> entry : pathsByNormalizedId.entrySet()) {
+                String rawId = idFromFileName(entry.getValue());
+                if (!VALID_ID.matcher(rawId).matches()) {
+                    throw StructurePoolException.invalidFilename(
+                            entry.getValue(),
+                            "the ID must match [a-z0-9_.-]+");
+                }
+                sources.add(new StructureSource(entry.getKey(), entry.getValue()));
+            }
+            return List.copyOf(sources);
+        } catch (StructurePoolException failure) {
+            throw failure;
+        } catch (IOException failure) {
+            throw StructurePoolException.filesystem(
+                    "discover the structure pool",
+                    configDirectory.toAbsolutePath().normalize(),
+                    failure);
         }
-        return List.copyOf(sources);
     }
 
     public static StructureSource resolveSelected(String id) throws IOException {
@@ -78,40 +88,68 @@ public final class StructurePool {
             String id) throws IOException {
         Objects.requireNonNull(id, "id");
         if (!VALID_ID.matcher(id).matches()) {
-            throw new IOException("Invalid selected structure ID: '" + id + "'");
+            throw StructurePoolException.invalidSelectedId(id);
         }
 
-        Path directory = structuresDirectory(configDirectory);
-        Path selected = directory.resolve(id + ".nbt").normalize();
-        if (!Objects.equals(selected.getParent(), directory)
-                || Files.isSymbolicLink(selected)
-                || !Files.isRegularFile(selected, LinkOption.NOFOLLOW_LINKS)
-                || !Files.isReadable(selected)) {
-            throw new IOException(
-                    "Selected structure file is missing or unsafe: " + selected);
+        Objects.requireNonNull(configDirectory, "configDirectory");
+        try {
+            Path directory = structuresDirectory(configDirectory);
+            Path selected = directory.resolve(id + ".nbt").normalize();
+            if (!Objects.equals(selected.getParent(), directory)
+                    || Files.isSymbolicLink(selected)
+                    || !Files.isRegularFile(selected, LinkOption.NOFOLLOW_LINKS)
+                    || !Files.isReadable(selected)) {
+                throw StructurePoolException.selectedFileUnavailable(
+                        id,
+                        selected);
+            }
+            Path realSelected = selected.toRealPath();
+            if (!Objects.equals(realSelected.getParent(), directory)) {
+                throw StructurePoolException.unsafePath(
+                        selected,
+                        "Selected structure file resolves outside the pool directory");
+            }
+            return new StructureSource(id, realSelected);
+        } catch (StructurePoolException failure) {
+            throw failure;
+        } catch (IOException failure) {
+            throw StructurePoolException.filesystem(
+                    "resolve the selected structure file",
+                    configDirectory.toAbsolutePath().normalize(),
+                    failure);
         }
-        Path realSelected = selected.toRealPath();
-        if (!Objects.equals(realSelected.getParent(), directory)) {
-            throw new IOException(
-                    "Selected structure file resolves outside the pool directory: "
-                            + selected);
-        }
-        return new StructureSource(id, realSelected);
     }
 
     public static Path structuresDirectory(Path configDirectory) throws IOException {
         Objects.requireNonNull(configDirectory, "configDirectory");
-        Path requestedConfigDirectory = configDirectory.toAbsolutePath().normalize();
-        Files.createDirectories(requestedConfigDirectory);
-        Path realConfigDirectory = requestedConfigDirectory.toRealPath();
-        if (!Files.isDirectory(realConfigDirectory, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("Config path is not a directory: " + requestedConfigDirectory);
-        }
+        Path requestedConfigDirectory =
+                configDirectory.toAbsolutePath().normalize();
+        try {
+            Files.createDirectories(requestedConfigDirectory);
+            Path realConfigDirectory =
+                    requestedConfigDirectory.toRealPath();
+            if (!Files.isDirectory(
+                    realConfigDirectory,
+                    LinkOption.NOFOLLOW_LINKS)) {
+                throw StructurePoolException.unsafePath(
+                        requestedConfigDirectory,
+                        "Config path is not a directory");
+            }
 
-        Path modDirectory = ensureDirectChildDirectory(
-                realConfigDirectory,
-                AdaptiveStartingStructure.MOD_ID);
-        return ensureDirectChildDirectory(modDirectory, STRUCTURES_DIRECTORY);
+            Path modDirectory = ensureDirectChildDirectory(
+                    realConfigDirectory,
+                    AdaptiveStartingStructure.MOD_ID);
+            return ensureDirectChildDirectory(
+                    modDirectory,
+                    STRUCTURES_DIRECTORY);
+        } catch (StructurePoolException failure) {
+            throw failure;
+        } catch (IOException failure) {
+            throw StructurePoolException.filesystem(
+                    "prepare the structure pool directory",
+                    requestedConfigDirectory,
+                    failure);
+        }
     }
 
     public static <T> T selectValidated(long worldSeed, List<T> validatedPool) {
@@ -170,7 +208,9 @@ public final class StructurePool {
         try (DirectoryStream<Path> entries = Files.newDirectoryStream(directory)) {
             for (Path entry : entries) {
                 if (Files.isSymbolicLink(entry)) {
-                    throw new IOException("Symbolic links are not allowed in the structure pool: " + entry);
+                    throw StructurePoolException.unsafePath(
+                            entry,
+                            "Symbolic links are not allowed in the structure pool");
                 }
                 if (!Files.isRegularFile(entry, LinkOption.NOFOLLOW_LINKS)) {
                     continue;
@@ -178,30 +218,38 @@ public final class StructurePool {
                 String fileName = fileName(entry);
                 if (!fileName.endsWith(".nbt")) {
                     if (fileName.toLowerCase(Locale.ROOT).endsWith(".nbt")) {
-                        throw new IOException(
-                                "Invalid structure filename '" + fileName
-                                        + "': the extension must be exactly .nbt");
+                        throw StructurePoolException.invalidFilename(
+                                entry,
+                                "the extension must be exactly .nbt");
                     }
                     continue;
                 }
                 if (!Files.isReadable(entry)) {
-                    throw new IOException("Structure file is not readable: " + entry);
+                    throw StructurePoolException.unsafePath(
+                            entry,
+                            "Structure file is not readable");
                 }
 
                 Path normalizedEntry = entry.toAbsolutePath().normalize();
                 if (!Objects.equals(normalizedEntry.getParent(), directory)) {
-                    throw new IOException("Structure path escapes the pool directory: " + entry);
+                    throw StructurePoolException.unsafePath(
+                            entry,
+                            "Structure path escapes the pool directory");
                 }
                 Path realEntry = entry.toRealPath();
                 if (!Objects.equals(realEntry.getParent(), directory)) {
-                    throw new IOException("Structure path resolves outside the pool directory: " + entry);
+                    throw StructurePoolException.unsafePath(
+                            entry,
+                            "Structure path resolves outside the pool directory");
                 }
                 candidates.add(realEntry);
             }
         }
 
         if (Files.isSymbolicLink(directory) || !directory.equals(directory.toRealPath())) {
-            throw new IOException("Structure pool directory changed or became a symbolic link: " + directory);
+            throw StructurePoolException.unsafePath(
+                    directory,
+                    "Structure pool directory changed or became a symbolic link");
         }
         return candidates;
     }
@@ -209,7 +257,9 @@ public final class StructurePool {
     private static Path ensureDirectChildDirectory(Path parent, String childName) throws IOException {
         Path child = parent.resolve(childName).normalize();
         if (!Objects.equals(child.getParent(), parent)) {
-            throw new IOException("Resolved path escapes its parent directory: " + child);
+            throw StructurePoolException.unsafePath(
+                    child,
+                    "Resolved path escapes its parent directory");
         }
 
         if (!Files.exists(child, LinkOption.NOFOLLOW_LINKS)) {
@@ -220,15 +270,21 @@ public final class StructurePool {
             }
         }
         if (Files.isSymbolicLink(child)) {
-            throw new IOException("Symbolic links are not allowed for the structure pool path: " + child);
+            throw StructurePoolException.unsafePath(
+                    child,
+                    "Symbolic links are not allowed for the structure pool path");
         }
         if (!Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("Expected a directory at structure pool path: " + child);
+            throw StructurePoolException.unsafePath(
+                    child,
+                    "Expected a directory at structure pool path");
         }
 
         Path realChild = child.toRealPath();
         if (!Objects.equals(realChild.getParent(), parent)) {
-            throw new IOException("Structure pool path resolves outside its parent: " + child);
+            throw StructurePoolException.unsafePath(
+                    child,
+                    "Structure pool path resolves outside its parent");
         }
         return realChild;
     }

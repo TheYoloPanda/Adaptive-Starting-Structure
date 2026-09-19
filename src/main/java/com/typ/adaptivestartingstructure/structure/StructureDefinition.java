@@ -24,6 +24,7 @@ import net.minecraft.world.level.block.StructureBlock;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.StructureMode;
+import net.minecraft.world.phys.Vec3;
 
 public final class StructureDefinition {
     public static final String SPAWN_MARKER = AdaptiveStartingStructure.MOD_ID + ":spawn";
@@ -46,7 +47,7 @@ public final class StructureDefinition {
     private final StructureMarkers markers;
     private final int blockCount;
     private final int blockEntityCount;
-    private final int entityCount;
+    private final List<StructureEntityData> entities;
     private final Map<Rotation, RotatedStructureView> rotatedViews;
 
     private StructureDefinition(
@@ -60,7 +61,7 @@ public final class StructureDefinition {
             StructureMarkers markers,
             int blockCount,
             int blockEntityCount,
-            int entityCount) {
+            List<StructureEntityData> entities) {
         this.source = validated.source();
         this.size = validated.size();
         this.sha256 = validated.sha256();
@@ -78,7 +79,7 @@ public final class StructureDefinition {
         this.markers = Objects.requireNonNull(markers, "markers");
         this.blockCount = blockCount;
         this.blockEntityCount = blockEntityCount;
-        this.entityCount = entityCount;
+        this.entities = List.copyOf(entities);
         this.rotatedViews = createRotatedViews();
     }
 
@@ -177,9 +178,7 @@ public final class StructureDefinition {
         }
 
         StructureMarkers markers = new StructureMarkers(spawnMarker, groundLevelMarker);
-        int entityCount = root.contains("entities", CompoundTag.TAG_LIST)
-                ? root.getList("entities", CompoundTag.TAG_COMPOUND).size()
-                : 0;
+        List<StructureEntityData> entities = readEntities(root);
         return new StructureDefinition(
                 validated,
                 palettes.size(),
@@ -191,7 +190,7 @@ public final class StructureDefinition {
                 markers,
                 blockCount,
                 blockEntityCount,
-                entityCount);
+                entities);
     }
 
     public StructureSource source() {
@@ -263,7 +262,11 @@ public final class StructureDefinition {
     }
 
     public int entityCount() {
-        return entityCount;
+        return entities.size();
+    }
+
+    public List<StructureEntityData> entities() {
+        return entities;
     }
 
     public String summary() {
@@ -271,7 +274,7 @@ public final class StructureDefinition {
                 + ", blocks=" + blockCount
                 + ", explicitAir=" + explicitAirCount()
                 + ", blockEntities=" + blockEntityCount
-                + ", entities=" + entityCount
+                + ", entities=" + entityCount()
                 + ", replacedUnavailableWithAir="
                 + unavailableBlockReport.replacedPositionCount()
                 + ", palettes=" + paletteCount + "]";
@@ -308,6 +311,56 @@ public final class StructureDefinition {
                     blockGetter));
         }
         return List.copyOf(palettes);
+    }
+
+    private static List<StructureEntityData> readEntities(
+            CompoundTag root) {
+        if (!root.contains(
+                "entities",
+                CompoundTag.TAG_LIST)) {
+            return List.of();
+        }
+        ListTag entityTags = root.getList(
+                "entities",
+                CompoundTag.TAG_COMPOUND);
+        List<StructureEntityData> entities =
+                new ArrayList<>(entityTags.size());
+        for (int index = 0;
+                index < entityTags.size();
+                index++) {
+            CompoundTag source =
+                    entityTags.getCompound(index);
+            ListTag position =
+                    source.getList(
+                            "pos",
+                            CompoundTag.TAG_DOUBLE);
+            ListTag blockPosition =
+                    source.getList(
+                            "blockPos",
+                            CompoundTag.TAG_INT);
+            CompoundTag entityNbt =
+                    source.getCompound("nbt");
+            Optional<String> authoredId =
+                    entityNbt.contains(
+                                    "id",
+                                    CompoundTag.TAG_STRING)
+                            ? Optional.of(
+                                    entityNbt.getString("id"))
+                            : Optional.empty();
+            entities.add(new StructureEntityData(
+                    index,
+                    new Vec3(
+                            position.getDouble(0),
+                            position.getDouble(1),
+                            position.getDouble(2)),
+                    new BlockPos(
+                            blockPosition.getInt(0),
+                            blockPosition.getInt(1),
+                            blockPosition.getInt(2)),
+                    entityNbt,
+                    authoredId));
+        }
+        return List.copyOf(entities);
     }
 
     private static List<BlockState> readPalette(

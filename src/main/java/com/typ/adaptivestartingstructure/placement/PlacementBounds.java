@@ -18,6 +18,9 @@ public record PlacementBounds(
         int minimumBlendZ,
         int maximumBlendZ) {
 
+    static final long MAX_AFFECTED_COLUMNS = 262_144L;
+    static final int MAX_REQUIRED_CHUNKS = 1_296;
+
     public PlacementBounds {
         structureBounds =
                 Objects.requireNonNull(structureBounds, "structureBounds");
@@ -87,6 +90,36 @@ public record PlacementBounds(
                         "maximum blend Z"));
     }
 
+    public PlacementBounds expandedBy(int horizontalMargin) {
+        if (horizontalMargin < 0) {
+            throw new IllegalArgumentException(
+                    "horizontalMargin must not be negative");
+        }
+        return new PlacementBounds(
+                structureBounds,
+                exactCoordinate(
+                        (long) minimumAffectedX() - horizontalMargin,
+                        "expanded minimum X"),
+                exactCoordinate(
+                        (long) maximumAffectedX() + horizontalMargin,
+                        "expanded maximum X"),
+                exactCoordinate(
+                        (long) minimumAffectedZ() - horizontalMargin,
+                        "expanded minimum Z"),
+                exactCoordinate(
+                        (long) maximumAffectedZ() + horizontalMargin,
+                        "expanded maximum Z"));
+    }
+
+    public boolean contains(PlacementBounds other) {
+        Objects.requireNonNull(other, "other");
+        return structureBounds.equals(other.structureBounds)
+                && minimumBlendX <= other.minimumBlendX
+                && maximumBlendX >= other.maximumBlendX
+                && minimumBlendZ <= other.minimumBlendZ
+                && maximumBlendZ >= other.maximumBlendZ;
+    }
+
     public boolean containsHorizontal(int x, int z) {
         boolean insideStructure =
                 x >= structureBounds.minimum().getX()
@@ -126,6 +159,14 @@ public record PlacementBounds(
     }
 
     public List<ChunkPos> requiredChunks() {
+        long requiredChunkCount = requiredChunkCount();
+        if (requiredChunkCount > MAX_REQUIRED_CHUNKS) {
+            throw new PlacementPreparationException(
+                    "Placement preparation requires "
+                            + requiredChunkCount
+                            + " chunks; the operational maximum is "
+                            + MAX_REQUIRED_CHUNKS);
+        }
         Map<Long, ChunkPos> chunks = new LinkedHashMap<>();
         addChunks(
                 chunks,
@@ -142,40 +183,27 @@ public record PlacementBounds(
         return List.copyOf(chunks.values());
     }
 
+    void validateAffectedColumnLimit() {
+        long affectedColumns = affectedColumnCount();
+        if (affectedColumns > MAX_AFFECTED_COLUMNS) {
+            throw new PlacementPreparationException(
+                    "Placement area contains "
+                            + affectedColumns
+                            + " affected columns; the operational maximum is "
+                            + MAX_AFFECTED_COLUMNS);
+        }
+    }
+
     public long affectedColumnCount() {
-        long structureArea = area(
-                structureBounds.minimum().getX(),
-                structureBounds.maximum().getX(),
-                structureBounds.minimum().getZ(),
-                structureBounds.maximum().getZ());
-        long blendArea = area(
-                minimumBlendX,
-                maximumBlendX,
-                minimumBlendZ,
-                maximumBlendZ);
-        int intersectionMinimumX = Math.max(
-                structureBounds.minimum().getX(),
-                minimumBlendX);
-        int intersectionMaximumX = Math.min(
-                structureBounds.maximum().getX(),
-                maximumBlendX);
-        int intersectionMinimumZ = Math.max(
-                structureBounds.minimum().getZ(),
-                minimumBlendZ);
-        int intersectionMaximumZ = Math.min(
-                structureBounds.maximum().getZ(),
-                maximumBlendZ);
-        long intersection = intersectionMinimumX <= intersectionMaximumX
-                        && intersectionMinimumZ <= intersectionMaximumZ
-                ? area(
-                        intersectionMinimumX,
-                        intersectionMaximumX,
-                        intersectionMinimumZ,
-                        intersectionMaximumZ)
-                : 0L;
-        return Math.addExact(
-                structureArea,
-                Math.subtractExact(blendArea, intersection));
+        return unionArea(
+                horizontalStructureBounds(),
+                horizontalBlendBounds());
+    }
+
+    private long requiredChunkCount() {
+        return unionArea(
+                chunkBounds(horizontalStructureBounds()),
+                chunkBounds(horizontalBlendBounds()));
     }
 
     private static void addChunks(
@@ -202,14 +230,38 @@ public record PlacementBounds(
         }
     }
 
-    private static long area(
-            int minimumX,
-            int maximumX,
-            int minimumZ,
-            int maximumZ) {
-        long width = (long) maximumX - minimumX + 1L;
-        long depth = (long) maximumZ - minimumZ + 1L;
-        return Math.multiplyExact(width, depth);
+    private HorizontalBounds horizontalStructureBounds() {
+        return new HorizontalBounds(
+                structureBounds.minimum().getX(),
+                structureBounds.maximum().getX(),
+                structureBounds.minimum().getZ(),
+                structureBounds.maximum().getZ());
+    }
+
+    private HorizontalBounds horizontalBlendBounds() {
+        return new HorizontalBounds(
+                minimumBlendX,
+                maximumBlendX,
+                minimumBlendZ,
+                maximumBlendZ);
+    }
+
+    private static HorizontalBounds chunkBounds(
+            HorizontalBounds blocks) {
+        return new HorizontalBounds(
+                SectionPos.blockToSectionCoord(blocks.minimumX()),
+                SectionPos.blockToSectionCoord(blocks.maximumX()),
+                SectionPos.blockToSectionCoord(blocks.minimumZ()),
+                SectionPos.blockToSectionCoord(blocks.maximumZ()));
+    }
+
+    private static long unionArea(
+            HorizontalBounds first,
+            HorizontalBounds second) {
+        long intersection = first.intersectionArea(second);
+        return Math.addExact(
+                first.area(),
+                Math.subtractExact(second.area(), intersection));
     }
 
     private static int exactCoordinate(long value, String name) {
@@ -235,5 +287,38 @@ public record PlacementBounds(
                 exactCoordinate(
                         (long) origin.getZ() + offset.getZ(),
                         name + " Z"));
+    }
+
+    private record HorizontalBounds(
+            int minimumX,
+            int maximumX,
+            int minimumZ,
+            int maximumZ) {
+        private long area() {
+            long width = (long) maximumX - minimumX + 1L;
+            long depth = (long) maximumZ - minimumZ + 1L;
+            return Math.multiplyExact(width, depth);
+        }
+
+        private long intersectionArea(HorizontalBounds other) {
+            int intersectionMinimumX =
+                    Math.max(minimumX, other.minimumX);
+            int intersectionMaximumX =
+                    Math.min(maximumX, other.maximumX);
+            int intersectionMinimumZ =
+                    Math.max(minimumZ, other.minimumZ);
+            int intersectionMaximumZ =
+                    Math.min(maximumZ, other.maximumZ);
+            if (intersectionMinimumX > intersectionMaximumX
+                    || intersectionMinimumZ > intersectionMaximumZ) {
+                return 0L;
+            }
+            return new HorizontalBounds(
+                    intersectionMinimumX,
+                    intersectionMaximumX,
+                    intersectionMinimumZ,
+                    intersectionMaximumZ)
+                    .area();
+        }
     }
 }

@@ -35,9 +35,23 @@ record PlacementLifecycleResult(
                 Objects.requireNonNull(metrics, "metrics"));
     }
 
+    static PlacementLifecycleResult awaitingDecision() {
+        return new PlacementLifecycleResult(
+                Status.AWAITING_DECISION,
+                null);
+    }
+
+    static PlacementLifecycleResult skipped() {
+        return new PlacementLifecycleResult(
+                Status.SKIPPED,
+                null);
+    }
+
     enum Status {
         NO_DATA,
         ALREADY_COMPLETE,
+        AWAITING_DECISION,
+        SKIPPED,
         COMPLETED
     }
 }

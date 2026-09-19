@@ -1,6 +1,5 @@
 package com.typ.adaptivestartingstructure.lifecycle;
 
-import com.typ.adaptivestartingstructure.planner.BiomeConfigurationException;
 import com.typ.adaptivestartingstructure.planner.CoarseRejectionReason;
 import com.typ.adaptivestartingstructure.planner.FineRejectionReason;
 import com.typ.adaptivestartingstructure.planner.GeneratorQueryBudgetExceededException;
@@ -8,6 +7,7 @@ import com.typ.adaptivestartingstructure.planner.SitePlanningDiagnostics;
 import com.typ.adaptivestartingstructure.planner.SitePlanningException;
 import com.typ.adaptivestartingstructure.planner.SpawnRejectionReason;
 import com.typ.adaptivestartingstructure.structure.StructureLoadException;
+import com.typ.adaptivestartingstructure.structure.StructurePoolException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Locale;
@@ -43,17 +43,22 @@ record PlanningFailureNotice(
         Objects.requireNonNull(phase, "phase");
         Objects.requireNonNull(failure, "failure");
 
+        if (failure instanceof StructureLoadException structureFailure) {
+            return new PlanningFailureNotice(
+                    phase,
+                    structureReason(structureFailure));
+        }
+        if (failure instanceof StructurePoolException poolFailure) {
+            return new PlanningFailureNotice(
+                    phase,
+                    structurePoolReason(poolFailure));
+        }
         if (phase == PlanningFailurePhase.CONFIGURATION) {
             return new PlanningFailureNotice(
                     phase,
                     Component.translatable(
                             REASON_PREFIX + "configuration",
                             safeMessage(failure)));
-        }
-        if (failure instanceof StructureLoadException structureFailure) {
-            return new PlanningFailureNotice(
-                    phase,
-                    structureReason(structureFailure));
         }
         if (failure instanceof SitePlanningException planningFailure) {
             return new PlanningFailureNotice(
@@ -67,24 +72,17 @@ record PlanningFailureNotice(
                             budgetFailure.queriesUsed(),
                             budgetFailure.maximumQueries()));
         }
-        if (failure instanceof BiomeConfigurationException) {
-            return new PlanningFailureNotice(
-                    phase,
-                    biomeConfigurationReason(safeMessage(failure)));
-        }
         if (failure instanceof IOException) {
             return new PlanningFailureNotice(
                     phase,
                     Component.translatable(
-                            REASON_PREFIX + "structure_pool",
-                            safeMessage(failure)));
+                            REASON_PREFIX + "structure_pool.io"));
         }
         return new PlanningFailureNotice(
                 phase,
                 Component.translatable(
                         REASON_PREFIX + "unexpected",
-                        failure.getClass().getSimpleName(),
-                        safeMessage(failure)));
+                        failure.getClass().getSimpleName()));
     }
 
     Component message() {
@@ -115,6 +113,17 @@ record PlanningFailureNotice(
                 REASON_PREFIX + "invalid_structure",
                 fileName,
                 detail);
+    }
+
+    static Component structurePoolReason(
+            StructurePoolException failure) {
+        Objects.requireNonNull(failure, "failure");
+        String suffix = failure.category()
+                .name()
+                .toLowerCase(Locale.ROOT);
+        return Component.translatable(
+                REASON_PREFIX + "structure_pool." + suffix,
+                failure.publicArguments().toArray());
     }
 
     static Component siteReason(SitePlanningDiagnostics diagnostics) {
@@ -156,12 +165,6 @@ record PlanningFailureNotice(
                 REASON_PREFIX + "query_budget",
                 queriesUsed,
                 maximumQueries);
-    }
-
-    static Component biomeConfigurationReason(String detail) {
-        return Component.translatable(
-                REASON_PREFIX + "biome_configuration",
-                Objects.requireNonNull(detail, "detail"));
     }
 
     private static <E extends Enum<E>> DominantRejection dominant(

@@ -62,9 +62,15 @@ final class FootprintLevelingPlanner {
             int signedError = column.groundY() - targetY;
             if (signedError > config.maximumCutDepth()
                     || -signedError > config.maximumFillDepth()) {
-                throw new PlacementPreparationException(
-                        "Snapshot terrain exceeds cut/fill limits at ["
-                                + x + ", " + z + "]");
+                throw UnsuitableGeneratedSiteException
+                        .cutFillThresholdExceeded(
+                                "Generated footprint",
+                                x,
+                                z,
+                                column.groundY(),
+                                targetY,
+                                config.maximumCutDepth(),
+                                config.maximumFillDepth());
             }
             if (signedError > 0) {
                 planCut(writes, column, targetY);

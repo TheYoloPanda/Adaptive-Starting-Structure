@@ -10,7 +10,6 @@ import java.util.Map;
 import java.util.Objects;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.BlockGetter;
-import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -27,19 +26,6 @@ public final class TheoreticalSpawnValidator {
             Blocks.AIR.defaultBlockState();
 
     private TheoreticalSpawnValidator() {
-    }
-
-    public static SpawnValidationResult validate(
-            GameRules gameRules,
-            RotatedStructureView structure,
-            FineCandidatePlan plan,
-            TheoreticalTerrainSource terrain) {
-        Objects.requireNonNull(gameRules, "gameRules");
-        return validate(
-                gameRules.getInt(GameRules.RULE_SPAWN_RADIUS),
-                structure,
-                plan,
-                terrain);
     }
 
     public static SpawnValidationResult validate(

@@ -26,7 +26,7 @@ public final class TemplatePlacement {
         if (!terrain.leveling()
                 .snapshot()
                 .bounds()
-                .equals(prepared.bounds())) {
+                .equals(prepared.treeObservationBounds())) {
             throw new PlacementPreparationException(
                     "Terrain context does not match prepared placement");
         }

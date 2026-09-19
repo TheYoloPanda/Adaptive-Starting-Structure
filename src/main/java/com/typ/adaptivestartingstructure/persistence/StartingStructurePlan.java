@@ -1,11 +1,13 @@
 package com.typ.adaptivestartingstructure.persistence;
 
+import com.typ.adaptivestartingstructure.config.PlacementSettings;
 import com.typ.adaptivestartingstructure.planner.SiteCandidate;
 import com.typ.adaptivestartingstructure.planner.SitePlanningDiagnostics;
 import com.typ.adaptivestartingstructure.planner.SitePlanningResult;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 public record StartingStructurePlan(
@@ -14,11 +16,34 @@ public record StartingStructurePlan(
         int selectionAlgorithmVersion,
         SiteCandidate candidate,
         List<SiteCandidate> alternativeCandidates,
-        SitePlanningDiagnostics diagnostics) {
+        SitePlanningDiagnostics diagnostics,
+        Optional<PlacementSettings> placementSettings) {
     private static final Pattern STRUCTURE_ID = Pattern.compile("[a-z0-9_.-]+");
     private static final Pattern SHA_256 = Pattern.compile("[0-9a-f]{64}");
 
+    /**
+     * A plan whose planning-time configuration is unknown, which is what a
+     * plan written before that configuration was recorded decodes to.
+     */
+    public StartingStructurePlan(
+            long selectionSeed,
+            long selectionSalt,
+            int selectionAlgorithmVersion,
+            SiteCandidate candidate,
+            List<SiteCandidate> alternativeCandidates,
+            SitePlanningDiagnostics diagnostics) {
+        this(
+                selectionSeed,
+                selectionSalt,
+                selectionAlgorithmVersion,
+                candidate,
+                alternativeCandidates,
+                diagnostics,
+                Optional.empty());
+    }
+
     public StartingStructurePlan {
+        Objects.requireNonNull(placementSettings, "placementSettings");
         if (selectionAlgorithmVersion <= 0) {
             throw new IllegalArgumentException(
                     "selectionAlgorithmVersion must be positive");
@@ -71,7 +96,8 @@ public record StartingStructurePlan(
             long selectionSeed,
             long selectionSalt,
             int selectionAlgorithmVersion,
-            SitePlanningResult result) {
+            SitePlanningResult result,
+            PlacementSettings placementSettings) {
         Objects.requireNonNull(result, "result");
         return new StartingStructurePlan(
                 selectionSeed,
@@ -79,7 +105,10 @@ public record StartingStructurePlan(
                 selectionAlgorithmVersion,
                 result.selectedCandidate(),
                 result.alternativeCandidates(),
-                result.diagnostics());
+                result.diagnostics(),
+                Optional.of(Objects.requireNonNull(
+                        placementSettings,
+                        "placementSettings")));
     }
 
     public StartingStructurePlan advanceCandidate() {
@@ -95,7 +124,30 @@ public record StartingStructurePlan(
                 alternativeCandidates.subList(
                         1,
                         alternativeCandidates.size()),
-                diagnostics);
+                diagnostics,
+                placementSettings);
+    }
+
+    Optional<SiteAdvance> advancePastCurrentSite() {
+        List<SiteCandidate> retained = alternativeCandidates.stream()
+                .filter(alternative -> !sameSite(candidate, alternative))
+                .toList();
+        if (retained.isEmpty()) {
+            return Optional.empty();
+        }
+        int discardedCandidates = Math.addExact(
+                1,
+                alternativeCandidates.size() - retained.size());
+        return Optional.of(new SiteAdvance(
+                new StartingStructurePlan(
+                        selectionSeed,
+                        selectionSalt,
+                        selectionAlgorithmVersion,
+                        retained.getFirst(),
+                        retained.subList(1, retained.size()),
+                        diagnostics,
+                        placementSettings),
+                discardedCandidates));
     }
 
     public List<SiteCandidate> candidates() {
@@ -121,6 +173,25 @@ public record StartingStructurePlan(
         if (!SHA_256.matcher(candidate.structureSha256()).matches()) {
             throw new IllegalArgumentException(
                     "candidate structureSha256 must be 64 lowercase hexadecimal characters");
+        }
+    }
+
+    private static boolean sameSite(
+            SiteCandidate first,
+            SiteCandidate second) {
+        return first.centerX() == second.centerX()
+                && first.centerZ() == second.centerZ();
+    }
+
+    record SiteAdvance(
+            StartingStructurePlan plan,
+            int discardedCandidates) {
+        SiteAdvance {
+            plan = Objects.requireNonNull(plan, "plan");
+            if (discardedCandidates <= 0) {
+                throw new IllegalArgumentException(
+                        "discardedCandidates must be positive");
+            }
         }
     }
 }

@@ -9,6 +9,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 
 final class WorldUpdatePlan {
+    private final PlacementBounds interventionBounds;
     private final PlacementBounds bounds;
     private final Set<ChunkPos> preparedChunks;
     private final Set<ChunkPos> modifiedChunks;
@@ -18,16 +19,25 @@ final class WorldUpdatePlan {
     private final Set<BlockPos> fluidSeedPositions;
 
     private WorldUpdatePlan(
+            PlacementBounds interventionBounds,
             PlacementBounds bounds,
             List<ChunkPos> preparedChunks,
             Iterable<BlockPos> levelingWrites,
-            Iterable<BlockPos> blendingWrites,
+            Iterable<BlockPos> environmentBlendingWrites,
+            Iterable<BlockPos> treeCleanupWrites,
             Iterable<BlockPos> templateWrites,
             Iterable<BlockPos> finalTemplateUpdates,
             Iterable<BlockPos> blockEntityPositions,
             Iterable<BlockPos> blendFluidSeeds,
             Iterable<BlockPos> templateFluidSeeds) {
+        this.interventionBounds = Objects.requireNonNull(
+                interventionBounds,
+                "interventionBounds");
         this.bounds = Objects.requireNonNull(bounds, "bounds");
+        if (!this.bounds.contains(this.interventionBounds)) {
+            throw new IllegalArgumentException(
+                    "Prepared bounds must contain intervention bounds");
+        }
         this.preparedChunks = immutableChunks(preparedChunks);
         if (this.preparedChunks.isEmpty()) {
             throw new IllegalArgumentException(
@@ -36,18 +46,37 @@ final class WorldUpdatePlan {
 
         LinkedHashSet<BlockPos> blockWrites =
                 new LinkedHashSet<>();
-        addPositions(blockWrites, levelingWrites);
-        addPositions(blockWrites, blendingWrites);
-        addPositions(blockWrites, templateWrites);
+        addPositionsWithin(
+                blockWrites,
+                levelingWrites,
+                this.interventionBounds);
+        addPositionsWithin(
+                blockWrites,
+                environmentBlendingWrites,
+                this.interventionBounds);
+        addPositionsWithin(
+                blockWrites,
+                treeCleanupWrites,
+                this.bounds);
+        addPositionsWithin(
+                blockWrites,
+                templateWrites,
+                this.interventionBounds);
         LinkedHashSet<BlockPos> updates =
                 new LinkedHashSet<>(blockWrites);
-        addPositions(updates, finalTemplateUpdates);
+        addPositionsWithin(
+                updates,
+                finalTemplateUpdates,
+                this.interventionBounds);
         this.blockUpdatePositions =
                 immutablePositions(updates);
 
         LinkedHashSet<BlockPos> entities =
                 new LinkedHashSet<>();
-        addPositions(entities, blockEntityPositions);
+        addPositionsWithin(
+                entities,
+                blockEntityPositions,
+                this.interventionBounds);
         if (!this.blockUpdatePositions.containsAll(entities)) {
             throw new IllegalArgumentException(
                     "BlockEntity updates must be part of final block updates");
@@ -57,8 +86,14 @@ final class WorldUpdatePlan {
 
         LinkedHashSet<BlockPos> fluidSeeds =
                 new LinkedHashSet<>();
-        addPositions(fluidSeeds, blendFluidSeeds);
-        addPositions(fluidSeeds, templateFluidSeeds);
+        addPositionsWithin(
+                fluidSeeds,
+                blendFluidSeeds,
+                this.bounds);
+        addPositionsWithin(
+                fluidSeeds,
+                templateFluidSeeds,
+                this.interventionBounds);
         this.fluidSeedPositions =
                 immutablePositions(fluidSeeds);
 
@@ -67,14 +102,10 @@ final class WorldUpdatePlan {
         LinkedHashSet<Long> changedColumns =
                 new LinkedHashSet<>();
         for (BlockPos position : this.blockUpdatePositions) {
-            validatePosition(position);
             changedChunks.add(new ChunkPos(position));
             changedColumns.add(TerrainSnapshot.pack(
                     position.getX(),
                     position.getZ()));
-        }
-        for (BlockPos position : this.fluidSeedPositions) {
-            validatePosition(position);
         }
         this.modifiedChunks =
                 Collections.unmodifiableSet(changedChunks);
@@ -95,11 +126,15 @@ final class WorldUpdatePlan {
                 placement.plan();
         return create(
                 prepared.bounds(),
+                prepared.treeObservationBounds(),
                 prepared.chunks(),
                 leveling.writes().stream()
                         .map(TerrainWrite::position)
                         .toList(),
-                blending.writes().stream()
+                blending.environmentWrites().stream()
+                        .map(TerrainWrite::position)
+                        .toList(),
+                blending.treeCleanupPlanWrites().stream()
                         .map(TerrainWrite::position)
                         .toList(),
                 template.writes().stream()
@@ -125,9 +160,37 @@ final class WorldUpdatePlan {
             Iterable<BlockPos> templateFluidSeeds) {
         return new WorldUpdatePlan(
                 bounds,
+                bounds,
                 preparedChunks,
                 levelingWrites,
                 blendingWrites,
+                List.of(),
+                templateWrites,
+                finalTemplateUpdates,
+                blockEntityPositions,
+                blendFluidSeeds,
+                templateFluidSeeds);
+    }
+
+    static WorldUpdatePlan create(
+            PlacementBounds interventionBounds,
+            PlacementBounds preparedBounds,
+            List<ChunkPos> preparedChunks,
+            Iterable<BlockPos> levelingWrites,
+            Iterable<BlockPos> environmentBlendingWrites,
+            Iterable<BlockPos> treeCleanupWrites,
+            Iterable<BlockPos> templateWrites,
+            Iterable<BlockPos> finalTemplateUpdates,
+            Iterable<BlockPos> blockEntityPositions,
+            Iterable<BlockPos> blendFluidSeeds,
+            Iterable<BlockPos> templateFluidSeeds) {
+        return new WorldUpdatePlan(
+                interventionBounds,
+                preparedBounds,
+                preparedChunks,
+                levelingWrites,
+                environmentBlendingWrites,
+                treeCleanupWrites,
                 templateWrites,
                 finalTemplateUpdates,
                 blockEntityPositions,
@@ -163,8 +226,25 @@ final class WorldUpdatePlan {
         return fluidSeedPositions;
     }
 
-    private void validatePosition(BlockPos position) {
-        if (!bounds.containsHorizontal(
+    private void addPositionsWithin(
+            Set<BlockPos> target,
+            Iterable<BlockPos> positions,
+            PlacementBounds allowedBounds) {
+        Objects.requireNonNull(positions, "positions");
+        for (BlockPos supplied : positions) {
+            BlockPos position = Objects.requireNonNull(
+                            supplied,
+                            "position")
+                    .immutable();
+            validatePosition(position, allowedBounds);
+            target.add(position);
+        }
+    }
+
+    private void validatePosition(
+            BlockPos position,
+            PlacementBounds allowedBounds) {
+        if (!allowedBounds.containsHorizontal(
                         position.getX(),
                         position.getZ())
                 || !preparedChunks.contains(

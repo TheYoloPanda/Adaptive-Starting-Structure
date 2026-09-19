@@ -69,6 +69,30 @@ becomes air in every palette so the structure footprint remains consistent.
 Malformed IDs, invalid properties on available blocks, corrupt NBT, and invalid
 or missing DATA markers still reject the template.
 
+### Template entities
+
+Template entities remain disabled by default. To restore supported standalone
+entities saved in the `.nbt`, enable:
+
+```toml
+placeTemplateEntities = true
+```
+
+Entities are prepared before terrain or template placement and published only
+after the final block, light, heightmap, fluid, and spawn checks. Fractional
+positions and authored NBT are preserved, root UUIDs are regenerated, and mobs
+are not rerolled through natural-spawn finalization. Paintings, item frames,
+and other block-attached entities use their transformed template anchor and
+must remain supported by the final blocks.
+
+Missing, malformed, unavailable, feature-disabled, non-serializable, or
+unloadable entity entries are skipped with a warning that identifies the
+template and source index. Player entities and passenger trees are rejected.
+Enabled placement also rejects templates exceeding 128 root entities, 4 MiB of
+aggregate uncompressed entity NBT, or NBT nesting depth 64. Entity-addition
+failure after block placement is fail-closed and prevents the world from being
+marked complete.
+
 ### Underground spawn markers and safety validation
 
 The `spawn` marker may be below `ground_level`. This is valid: `ground_level`
@@ -88,26 +112,79 @@ spawn column in the full `spawnRadius` area must pass the same checks:
 requireSafeSpawnArea = true
 ```
 
-This option never changes the vanilla `spawnRadius` gamerule. Vanilla may still
-move a player away from the exact marker while choosing a valid spawn point.
+This option never changes the vanilla `spawnRadius` gamerule.
+
+### Arriving on the spawn marker
+
+Setting the world spawn to the marker is not enough to arrive there. Vanilla
+picks a column within `spawnRadius` of the world spawn and puts the player on
+that column's surface, which for a structure with a roof is the roof. Setting
+the gamerule to `0` does not help: the single column it then considers is
+still resolved to its surface.
+
+The mod therefore moves arriving players onto the marker itself:
+
+```toml
+placePlayerAtSpawnMarker = true
+```
+
+This applies to a player with no bed or charged respawn anchor who arrives
+inside the area the vanilla search could have chosen from, and only until that
+player has been placed once. It covers both the first login and a respawn that
+falls back to the world spawn, including one whose bed was destroyed. Set it to
+`false` in a pack that manages spawning itself.
+
+### Customizing the biome lists
+
+`additionalPreferredBiomes` and `additionalExcludedBiomes` add to the built-in
+lists; `removedPreferredBiomes` and `removedExcludedBiomes` take entries out of
+them, which is the only way to reach an ID the mod hardcodes:
+
+```toml
+removedExcludedBiomes = ["minecraft:meadow"]
+removedPreferredBiomes = ["minecraft:badlands"]
+```
+
+`excludedBiomeTags` is the whole tag list rather than an addition to a hidden
+one, so a pack edits it directly.
+
+Biome and tag IDs the server's registry does not have are ignored with a
+warning naming them, so a pack that lists another mod's biome and later drops
+that mod keeps its starting structure. Naming an ID the defaults already list
+is redundant rather than an error.
 
 ### Terrain blending and trees
 
-Terrain is blended only inside the configured bounded placement area. A tree is
-removed as a complete connected tree when its trunk or canopy intersects the
-structure footprint, an actually modified blend column, or an explicit
-template cell. Trees that merely stand inside an unchanged part of the
-geometrical blend ring are preserved.
+Terrain is blended only inside the configured bounded placement area. Tree
+analysis uses a fixed 12-block observation margin beyond that area without
+extending the terrain blend. A tree is removed as a complete connected tree
+when its trunk or canopy intersects the structure footprint, an actually
+modified blend column, or an explicit template cell. Trees that merely stand
+inside an unchanged part of the blend or observation area are preserved.
 
-If a complete interfering tree cannot be resolved inside the prepared area,
-the site is rejected before placement and the next planned candidate is tried.
-This avoids leaving sliced canopies or floating trunks and does not load extra
-chunks dynamically.
+If a complete interfering tree cannot be resolved inside the observation
+margin, the physical site is rejected before placement. All planned rotations
+at the same site center are discarded together before the next site is tried.
+This avoids sliced canopies, floating trunks, and repeated preparation of the
+same unsuitable location. Observation chunks are prepared up front; tree
+traversal never loads chunks dynamically.
 
-If every planned candidate is rejected, singleplayer shows an error screen
-with a `Back to Title Screen` action instead of crashing the client. A
-dedicated server stops cleanly after logging the full error. The failed world
-is preserved and remains blocked from automatic placement retries.
+Generated terrain whose exact footprint or blend would exceed the configured
+cut/fill limits uses the same site-level retry before any world writes.
+
+The same preflight rejects a site when the complete template volume would
+intersect a generated vanilla, datapack, or modded structure registered with
+Minecraft. It also rejects terrain, vegetation, or whole-tree writes that
+would enter one of that structure's actual piece bounds. No extra proximity
+buffer is added. Arbitrary player builds and world-generation features that
+are not registered structures cannot be detected by this check.
+
+If every planned candidate is rejected, singleplayer shows a blocking choice:
+`Return to World List` preserves the world in its pending state, while
+`Continue Anyway` switches permanently to Minecraft's normal spawn without
+the starting structure (and restores the vanilla Bonus Chest choice when
+enabled). A dedicated server stops cleanly after logging the full error.
+Unexpected or potentially partial placement failures remain fail-closed.
 
 ### Command alternative
 
@@ -127,3 +204,54 @@ The vanilla Structure Block interface is limited to 48 blocks per axis. Larger
 structures must be exported with a tool that preserves both block states and
 Block Entity NBT. A clipped export or a conversion that removes Structure
 Blocks will also remove these required markers.
+
+### How a site is chosen
+
+The search walks outward from the spawn the world would have used, on a square
+lattice, and considers the area inside `preferredSearchRadius` before anything
+beyond it. It stops as soon as it has enough usable sites, so a world with good
+ground near the vanilla spawn never pays for the full `maximumSearchRadius`.
+
+`preferredSearchRadius` is therefore a preference, not just a sampling density:
+a site inside it wins over a flatter one outside it. `maximumSearchRadius` is
+how far the search is willing to go when the near area yields nothing, not how
+far it always looks.
+
+Within one band, sites that may overlap a generated structure such as a village
+rank below sites that do not. This is a placement check on the structure grid
+that generates no chunks, and it is deliberately conservative: it does not
+check whether the structure's own biome conditions would let it generate there,
+so it lowers a site's rank but never rejects it.
+
+The search itself does not read the world seed. Positions come from the
+lattice, and the seed decides the terrain those positions are judged on.
+
+### Changing the configuration after a world is created
+
+A world is planned when it is created and built the first time it is loaded,
+and those can be two different sessions: create the world, return to the world
+list, change the configuration, then open it.
+
+The values that decided where the structure goes — `blendWidth`,
+`maximumCutDepth`, `maximumFillDepth`, `maximumElevationRange`,
+`maximumPerimeterError`, `maximumWaterFraction` and `allowedRotations` — are
+stored with the plan and reused when the structure is built, so a change made
+in between does not invalidate a finished plan. The server log reports when
+this happens. Change them before creating a world for them to take effect.
+Settings that play no part in choosing a site, such as
+`placeTemplateEntities`, keep following the live configuration.
+
+### Recovering a world that refuses to start
+
+If the game dies while the structure is being built, the saved state stays at
+`PLACING` or `FAILED` and every later start refuses to run, because the world
+may be half-modified. To load such a world anyway:
+
+```toml
+blockedStateRecovery = "skip"
+```
+
+The starting structure is then given up on and the world loads as it is, which
+may leave partial terrain or structure changes from the interrupted attempt.
+The state is kept on disk, so setting the key back to `"block"` (the default)
+restores the refusal.

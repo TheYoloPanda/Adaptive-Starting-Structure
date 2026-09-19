@@ -27,7 +27,7 @@ public final class TerrainBlending {
                     "Terrain blending requires PLACING saved data");
         }
         if (!leveling.snapshot().bounds().equals(
-                prepared.bounds())) {
+                prepared.treeObservationBounds())) {
             throw new PlacementPreparationException(
                     "Terrain leveling context does not match the prepared placement");
         }
@@ -67,7 +67,7 @@ public final class TerrainBlending {
                     "Terrain blending preparation requires PLANNED saved data");
         }
         if (!leveling.snapshot().bounds().equals(
-                prepared.bounds())) {
+                prepared.treeObservationBounds())) {
             throw new PlacementPreparationException(
                     "Prepared terrain leveling does not match the prepared placement");
         }

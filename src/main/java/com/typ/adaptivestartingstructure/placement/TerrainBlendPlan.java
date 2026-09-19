@@ -14,6 +14,7 @@ import net.minecraft.world.level.ChunkPos;
 
 public final class TerrainBlendPlan {
     private final TerrainSnapshot snapshot;
+    private final PlacementBounds interventionBounds;
     private final List<BlendColumnTarget> columnTargets;
     private final Map<Long, BlendColumnTarget> targetsByPosition;
     private final Map<ChunkPos, List<TerrainWrite>> writesByChunk;
@@ -31,6 +32,7 @@ public final class TerrainBlendPlan {
 
     TerrainBlendPlan(
             TerrainSnapshot snapshot,
+            PlacementBounds interventionBounds,
             List<BlendColumnTarget> columnTargets,
             Map<ChunkPos, List<TerrainWrite>> writesByChunk,
             Set<BlockPos> fluidUpdatePositions,
@@ -39,6 +41,13 @@ public final class TerrainBlendPlan {
             int selectedTreeBlockCount,
             int selectedTreeAccessoryCount) {
         this.snapshot = Objects.requireNonNull(snapshot, "snapshot");
+        this.interventionBounds = Objects.requireNonNull(
+                interventionBounds,
+                "interventionBounds");
+        if (!snapshot.bounds().contains(this.interventionBounds)) {
+            throw new IllegalArgumentException(
+                    "Blend intervention bounds must be inside the snapshot");
+        }
         this.columnTargets = List.copyOf(columnTargets);
         if (this.columnTargets.size()
                 != snapshot.columns().size()) {
@@ -53,6 +62,10 @@ public final class TerrainBlendPlan {
             if (!snapshot.bounds().containsHorizontal(
                             target.x(),
                             target.z())
+                    || target.modifiesHeight()
+                            && !this.interventionBounds.containsHorizontal(
+                                    target.x(),
+                                    target.z())
                     || indexedTargets.put(
                                     TerrainSnapshot.pack(
                                             target.x(),
@@ -92,12 +105,18 @@ public final class TerrainBlendPlan {
                 BlendColumnTarget target = target(
                         write.position().getX(),
                         write.position().getZ());
+                boolean treeCleanup = treeCleanupPositions.contains(
+                        write.position());
                 boolean placementFootprint =
                         Double.compare(
                                 target.distanceFromFootprint(),
                                 0.0D) == 0;
                 if (!new ChunkPos(write.position()).equals(chunk)
                         || !writtenPositions.add(write.position())
+                        || !this.interventionBounds.containsHorizontal(
+                                        write.position().getX(),
+                                        write.position().getZ())
+                                && !treeCleanup
                         || !write.originalState()
                                         .getFluidState()
                                         .isEmpty()
@@ -116,8 +135,6 @@ public final class TerrainBlendPlan {
                         terrain++;
                     }
                     case VEGETATION_CLEAR -> {
-                        boolean treeCleanup = treeCleanupPositions.contains(
-                                write.position());
                         if (!target.modifiesHeight()
                                 && !placementFootprint
                                 && !treeCleanup) {
@@ -131,6 +148,12 @@ public final class TerrainBlendPlan {
                             FOOTPRINT_RESURFACE ->
                             throw new IllegalArgumentException(
                                     "Blend plan contains a leveling write");
+                }
+                if (treeCleanup
+                        && write.kind()
+                                != TerrainWrite.Kind.VEGETATION_CLEAR) {
+                    throw new IllegalArgumentException(
+                            "Tree cleanup contains a non-vegetation write");
                 }
             }
             grouped.put(chunk, chunkWrites);
@@ -167,6 +190,10 @@ public final class TerrainBlendPlan {
 
     public TerrainSnapshot snapshot() {
         return snapshot;
+    }
+
+    public PlacementBounds interventionBounds() {
+        return interventionBounds;
     }
 
     public List<BlendColumnTarget> columnTargets() {
