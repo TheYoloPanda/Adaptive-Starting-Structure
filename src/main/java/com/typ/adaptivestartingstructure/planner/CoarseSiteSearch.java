@@ -87,27 +87,48 @@ public final class CoarseSiteSearch {
     }
 
     /**
-     * Searches one band on its own, so that the caller can stop once the near
-     * band has produced enough usable sites instead of always paying for the
-     * far one.
+     * Searches one band on its own.
      */
     public static CoarseSearchResult searchBand(
             ConfigSnapshot config,
             PlannerQueryContext queries,
             StructureDefinition structure,
             CoarseCandidate.SearchBand band) {
-        Objects.requireNonNull(config, "config");
-        Objects.requireNonNull(queries, "queries");
-        Objects.requireNonNull(structure, "structure");
-        Objects.requireNonNull(band, "band");
+        return searchPositions(
+                config,
+                queries,
+                structure,
+                band,
+                bandPositions(config, band));
+    }
 
-        List<Rotation> rotations = config.allowedRotations();
-        int locationBudget = config.maximumCoarseCandidates() / rotations.size();
+    /**
+     * The positions of one band, nearest first, already cut to what the
+     * candidate budget allows.
+     *
+     * <p>Exposed so that a caller can walk them a slice at a time and stop
+     * once it has enough: finishing a whole band before deciding costs the
+     * positions it never needed, and inside a band a kilometre wide it also
+     * lets a flatter site far out beat a good one close by, which is not the
+     * preference the ordering is meant to express.
+     */
+    public static List<LatticePosition> bandPositions(
+            ConfigSnapshot config,
+            CoarseCandidate.SearchBand band) {
+        Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(band, "band");
+        return latticePositions(band, positionBudget(config, band), config);
+    }
+
+    private static int positionBudget(
+            ConfigSnapshot config,
+            CoarseCandidate.SearchBand band) {
+        int locationBudget =
+                config.maximumCoarseCandidates() / config.allowedRotations().size();
         if (locationBudget == 0) {
             throw new IllegalArgumentException(
                     "maximumCoarseCandidates must allow one complete set of rotations");
         }
-
         int nearCapacity = estimatedCapacity(
                 0,
                 config.preferredSearchRadius(),
@@ -121,16 +142,38 @@ public final class CoarseSiteSearch {
         locationBudget = Math.min(
                 locationBudget,
                 saturatedAdd(nearCapacity, farCapacity));
-
-        BandBudget bandBudget = distributeBudget(locationBudget, nearCapacity, farCapacity);
-        int positionBudget = band == CoarseCandidate.SearchBand.NEAR
+        BandBudget bandBudget =
+                distributeBudget(locationBudget, nearCapacity, farCapacity);
+        return band == CoarseCandidate.SearchBand.NEAR
                 ? bandBudget.near()
                 : bandBudget.far();
+    }
+
+    /** Evaluates exactly the positions given, in the order given. */
+    public static CoarseSearchResult searchPositions(
+            ConfigSnapshot config,
+            PlannerQueryContext queries,
+            StructureDefinition structure,
+            CoarseCandidate.SearchBand band,
+            List<LatticePosition> positions) {
+        Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(queries, "queries");
+        Objects.requireNonNull(structure, "structure");
+        Objects.requireNonNull(band, "band");
+        Objects.requireNonNull(positions, "positions");
+
+        List<Rotation> rotations = config.allowedRotations();
+        int locationBudget = config.maximumCoarseCandidates() / rotations.size();
+        if (locationBudget == 0) {
+            throw new IllegalArgumentException(
+                    "maximumCoarseCandidates must allow one complete set of rotations");
+        }
+
         int expectedCandidates = (int) Math.min(
                 4096L,
                 Math.min(
                         config.maximumCoarseCandidates(),
-                        (long) positionBudget * rotations.size()));
+                        (long) positions.size() * rotations.size()));
         List<CoarseCandidate> candidates = new ArrayList<>(expectedCandidates);
         Set<Long> visitedCenters = new HashSet<>();
         BlockPos origin = queries.suggestedSpawnOrigin();
@@ -138,7 +181,7 @@ public final class CoarseSiteSearch {
 
         GeneratorQueryBudgetExceededException budgetFailure = evaluateBand(
                 band,
-                positionBudget,
+                positions,
                 origin,
                 config,
                 queries,
@@ -164,7 +207,7 @@ public final class CoarseSiteSearch {
      */
     private static GeneratorQueryBudgetExceededException evaluateBand(
             CoarseCandidate.SearchBand band,
-            int positionCount,
+            List<LatticePosition> positions,
             BlockPos origin,
             ConfigSnapshot config,
             PlannerQueryContext queries,
@@ -173,7 +216,7 @@ public final class CoarseSiteSearch {
             Set<Long> visitedCenters,
             List<CoarseCandidate> candidates,
             SearchDiagnostics diagnostics) {
-        for (LatticePosition position : latticePositions(band, positionCount, config)) {
+        for (LatticePosition position : positions) {
             long centerX = (long) origin.getX() + position.offsetX();
             long centerZ = (long) origin.getZ() + position.offsetZ();
             if (centerX < Integer.MIN_VALUE || centerX > Integer.MAX_VALUE

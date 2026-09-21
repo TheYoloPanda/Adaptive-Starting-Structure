@@ -39,6 +39,14 @@ public final class SitePlanner {
      */
     static final int EARLY_EXIT_TARGET_SITES = 4;
 
+    /*
+     * How many positions the coarse search looks at before the run asks
+     * whether it already has what it needs. Small enough that a world with
+     * good ground nearby stops almost at once, large enough that a slice
+     * normally holds more than a handful of candidates to choose between.
+     */
+    static final int COARSE_SLICE = 64;
+
     /**
      * Which site-search algorithm produced a plan.
      *
@@ -193,81 +201,106 @@ public final class SitePlanner {
         BudgetInterruption interruption = null;
 
         /*
-         * One band at a time, nearest first. The far band costs roughly four
-         * times the near one with the default settings, and paying for it once
-         * the near band has already produced usable sites buys nothing: the
-         * sites it finds rank behind them anyway.
+         * Nearest first, a slice of positions at a time, stopping as soon as
+         * enough sites have survived. Finishing a whole band before deciding
+         * pays for positions never needed, and inside a band a kilometre wide
+         * it also lets a flatter site far out beat a good one close by, which
+         * is not what the ordering is meant to express.
          */
+        bands:
         for (CoarseCandidate.SearchBand band
                 : CoarseCandidate.SearchBand.values()) {
-            queries.limitNextPhase(
-                    phaseLimit(budget, COARSE_QUERY_SHARE_PERCENT));
-            measurements.begin();
-            CoarseSearchResult bandCoarse = CoarseSiteSearch.searchBand(
-                    config,
-                    queries,
-                    structure,
-                    band);
-            measurements.end("coarse");
-            coarseResult = coarseResult == null
-                    ? bandCoarse
-                    : coarseResult.merge(bandCoarse);
+            /*
+             * One finalist budget per band, spent across its slices. Spending
+             * one budget over the whole run would let a band whose candidates
+             * all fail spawn validation exhaust it and end the search before
+             * the next band is looked at, which is less coverage than
+             * finishing each band gave.
+             */
+            int remainingFinalists = config.fineCandidateCount();
+            List<CoarseSiteSearch.LatticePosition> positions =
+                    CoarseSiteSearch.bandPositions(config, band);
+            for (int from = 0; from < positions.size(); from += COARSE_SLICE) {
+                List<CoarseSiteSearch.LatticePosition> slice = positions.subList(
+                        from,
+                        Math.min(from + COARSE_SLICE, positions.size()));
+                queries.limitNextPhase(
+                        phaseLimit(budget, COARSE_QUERY_SHARE_PERCENT));
+                measurements.begin();
+                CoarseSearchResult sliceCoarse = CoarseSiteSearch.searchPositions(
+                        config,
+                        queries,
+                        structure,
+                        band,
+                        slice);
+                measurements.end("coarse");
+                coarseResult = coarseResult == null
+                        ? sliceCoarse
+                        : coarseResult.merge(sliceCoarse);
 
-            queries.limitNextPhase(
-                    phaseLimit(budget, FINE_QUERY_SHARE_PERCENT));
-            measurements.begin();
-            FineSearchResult bandFine = FineSiteEvaluator.evaluate(
-                    config,
-                    queries,
-                    bandCoarse.acceptedCandidates());
-            measurements.end("fine");
-            fineResult = fineResult == null
-                    ? bandFine
-                    : fineResult.merge(bandFine);
+                queries.limitNextPhase(
+                        phaseLimit(budget, FINE_QUERY_SHARE_PERCENT));
+                measurements.begin();
+                FineSearchResult sliceFine = FineSiteEvaluator.evaluate(
+                        config,
+                        queries,
+                        sliceCoarse.acceptedCandidates(),
+                        remainingFinalists);
+                measurements.end("fine");
+                remainingFinalists -= sliceFine.evaluations().size();
+                fineResult = fineResult == null
+                        ? sliceFine
+                        : fineResult.merge(sliceFine);
 
-            queries.limitNextPhase(budget);
-            if (interruption == null) {
-                interruption = firstInterruption(bandCoarse, bandFine);
-            }
-            measurements.begin();
-
-            for (FineCandidateEvaluation evaluation
-                    : bandFine.acceptedCandidates()) {
-                FineCandidatePlan plan = evaluation.plan().orElseThrow();
-                SpawnValidationResult spawnValidation;
-                try {
-                    spawnValidation =
-                            TheoreticalSpawnValidator.validate(
-                                    validationRadius,
-                                    evaluation.candidate().structure(),
-                                    plan,
-                                    terrain);
-                } catch (GeneratorQueryBudgetExceededException failure) {
-                    if (interruption == null) {
-                        interruption = new BudgetInterruption("spawn", failure);
+                queries.limitNextPhase(budget);
+                if (interruption == null) {
+                    interruption = firstInterruption(sliceCoarse, sliceFine);
+                }
+                measurements.begin();
+                for (FineCandidateEvaluation evaluation
+                        : sliceFine.acceptedCandidates()) {
+                    FineCandidatePlan plan = evaluation.plan().orElseThrow();
+                    SpawnValidationResult spawnValidation;
+                    try {
+                        spawnValidation =
+                                TheoreticalSpawnValidator.validate(
+                                        validationRadius,
+                                        evaluation.candidate().structure(),
+                                        plan,
+                                        terrain);
+                    } catch (GeneratorQueryBudgetExceededException failure) {
+                        if (interruption == null) {
+                            interruption =
+                                    new BudgetInterruption("spawn", failure);
+                        }
+                        break;
                     }
+                    spawnValidationCount++;
+                    if (!spawnValidation.accepted()) {
+                        spawnRejectedCandidateCount++;
+                        mergeCounts(
+                                spawnRejectionCounts,
+                                spawnValidation.rejectionCounts());
+                        continue;
+                    }
+
+                    acceptedCandidates.add(createSiteCandidate(
+                            structure,
+                            evaluation,
+                            configuredSpawnRadius,
+                            spawnValidation));
+                }
+                measurements.end("spawn");
+
+                if (interruption != null
+                        || acceptedCandidates.size()
+                                >= EARLY_EXIT_TARGET_SITES) {
+                    break bands;
+                }
+                if (remainingFinalists <= 0) {
+                    /* This band has had its chance; the next one may do better. */
                     break;
                 }
-                spawnValidationCount++;
-                if (!spawnValidation.accepted()) {
-                    spawnRejectedCandidateCount++;
-                    mergeCounts(
-                            spawnRejectionCounts,
-                            spawnValidation.rejectionCounts());
-                    continue;
-                }
-
-                acceptedCandidates.add(createSiteCandidate(
-                        structure,
-                        evaluation,
-                        configuredSpawnRadius,
-                        spawnValidation));
-            }
-
-            measurements.end("spawn");
-            if (interruption != null
-                    || acceptedCandidates.size() >= EARLY_EXIT_TARGET_SITES) {
-                break;
             }
         }
 
