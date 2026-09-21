@@ -48,12 +48,36 @@ public final class FineSiteEvaluator {
             PlannerQueryContext queries,
             List<CoarseCandidate> coarseCandidates) {
         Objects.requireNonNull(config, "config");
+        return evaluate(
+                config,
+                queries,
+                coarseCandidates,
+                config.fineCandidateCount());
+    }
+
+    /**
+     * Evaluates at most {@code finalistBudget} candidates.
+     *
+     * <p>A caller that walks the search in slices spends one budget across all
+     * of them rather than a fresh one per slice: otherwise stopping early in
+     * the coarse search would be paid for by running the fine stage many times
+     * over, and the saving would move rather than exist.
+     */
+    public static FineSearchResult evaluate(
+            ConfigSnapshot config,
+            PlannerQueryContext queries,
+            List<CoarseCandidate> coarseCandidates,
+            int finalistBudget) {
+        Objects.requireNonNull(config, "config");
         Objects.requireNonNull(queries, "queries");
         Objects.requireNonNull(coarseCandidates, "coarseCandidates");
+        if (finalistBudget <= 0) {
+            return new FineSearchResult(List.of(), List.of());
+        }
 
         List<CoarseCandidate> finalists = selectFinalists(
                 coarseCandidates,
-                config.fineCandidateCount());
+                finalistBudget);
         int finalistCount = finalists.size();
         List<FineCandidateEvaluation> evaluations = new ArrayList<>(finalistCount);
         List<FineCandidateEvaluation> accepted = new ArrayList<>(finalistCount);
