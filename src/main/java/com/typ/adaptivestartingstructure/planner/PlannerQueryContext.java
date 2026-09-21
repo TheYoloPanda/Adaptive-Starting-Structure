@@ -25,6 +25,18 @@ public final class PlannerQueryContext {
     private final Map<BiomeQuery, BiomeSample> biomeCache = new HashMap<>();
     private final Map<StructureQuery, Boolean> structureCache = new HashMap<>();
     private int queriesUsed;
+    private int heightCalls;
+    private int heightHits;
+    private long heightNanos;
+    private int columnCalls;
+    private int columnHits;
+    private long columnNanos;
+    private int biomeCalls;
+    private int biomeHits;
+    private long biomeNanos;
+    private int structureCalls;
+    private int structureHits;
+    private long structureNanos;
 
     public PlannerQueryContext(
             PlannerWorldQuerySource source,
@@ -70,10 +82,14 @@ public final class PlannerQueryContext {
         HeightQuery key = new HeightQuery(x, z, heightmapType);
         Integer cached = heightCache.get(key);
         if (cached != null) {
+            heightHits++;
             return cached;
         }
         consumeQuery("base height at [" + x + ", " + z + "] using " + heightmapType);
+        long startedAt = System.nanoTime();
         int height = source.baseHeight(x, z, heightmapType);
+        heightNanos += elapsedSince(startedAt);
+        heightCalls++;
         heightCache.put(key, height);
         return height;
     }
@@ -82,12 +98,16 @@ public final class PlannerQueryContext {
         ColumnQuery key = new ColumnQuery(x, z);
         TerrainColumn cached = columnCache.get(key);
         if (cached != null) {
+            columnHits++;
             return cached;
         }
         consumeQuery("base column at [" + x + ", " + z + "]");
+        long startedAt = System.nanoTime();
         TerrainColumn column = Objects.requireNonNull(
                 source.baseColumn(x, z),
                 "baseColumn");
+        columnNanos += elapsedSince(startedAt);
+        columnCalls++;
         columnCache.put(key, column);
         return column;
     }
@@ -99,13 +119,17 @@ public final class PlannerQueryContext {
                 QuartPos.fromBlock(blockZ));
         BiomeSample cached = biomeCache.get(key);
         if (cached != null) {
+            biomeHits++;
             return cached;
         }
         consumeQuery("noise biome at quart ["
                 + key.quartX + ", " + key.quartY + ", " + key.quartZ + "]");
+        long startedAt = System.nanoTime();
         BiomeSample biome = Objects.requireNonNull(
                 source.biomeAtQuart(key.quartX, key.quartY, key.quartZ),
                 "biomeAtQuart");
+        biomeNanos += elapsedSince(startedAt);
+        biomeCalls++;
         biomeCache.put(key, biome);
         return biome;
     }
@@ -141,13 +165,17 @@ public final class PlannerQueryContext {
                 maxChunkZ);
         Boolean cached = structureCache.get(key);
         if (cached != null) {
+            structureHits++;
             return cached;
         }
+        long startedAt = System.nanoTime();
         boolean present = source.mayContainStructureStart(
                 minChunkX,
                 minChunkZ,
                 maxChunkX,
                 maxChunkZ);
+        structureNanos += elapsedSince(startedAt);
+        structureCalls++;
         structureCache.put(key, present);
         return present;
     }
@@ -188,6 +216,22 @@ public final class PlannerQueryContext {
 
     public int queriesUsed() {
         return queriesUsed;
+    }
+
+    /** What has been asked of the world so far, by kind of question. */
+    public QuerySnapshot snapshot() {
+        return new QuerySnapshot(
+                new QuerySnapshot.Count(heightCalls, heightHits, heightNanos),
+                new QuerySnapshot.Count(columnCalls, columnHits, columnNanos),
+                new QuerySnapshot.Count(biomeCalls, biomeHits, biomeNanos),
+                new QuerySnapshot.Count(
+                        structureCalls,
+                        structureHits,
+                        structureNanos));
+    }
+
+    private static long elapsedSince(long startedAt) {
+        return Math.max(0L, System.nanoTime() - startedAt);
     }
 
     public int heightCacheSize() {

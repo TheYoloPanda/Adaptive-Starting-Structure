@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.function.LongConsumer;
 import java.util.function.LongSupplier;
 import net.minecraft.core.BlockPos;
@@ -86,7 +87,8 @@ public final class SitePlanner {
                 elapsedNanos -> AdaptiveStartingStructure.LOGGER.warn(
                         "Starting-structure site planning took {} ms and {} generator queries",
                         TimeUnit.NANOSECONDS.toMillis(elapsedNanos),
-                        queries.queriesUsed()));
+                        queries.queriesUsed()),
+                AdaptiveStartingStructure.LOGGER::info);
     }
 
     static SitePlanningResult plan(
@@ -97,30 +99,76 @@ public final class SitePlanner {
             int configuredSpawnRadius,
             LongSupplier nanoTime,
             LongConsumer slowWarning) {
+        return plan(
+                seed,
+                config,
+                queries,
+                structure,
+                configuredSpawnRadius,
+                nanoTime,
+                slowWarning,
+                line -> {
+                });
+    }
+
+    static SitePlanningResult plan(
+            long seed,
+            ConfigSnapshot config,
+            PlannerQueryContext queries,
+            StructureDefinition structure,
+            int configuredSpawnRadius,
+            LongSupplier nanoTime,
+            LongConsumer slowWarning,
+            Consumer<String> telemetry) {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(queries, "queries");
         Objects.requireNonNull(structure, "structure");
         Objects.requireNonNull(nanoTime, "nanoTime");
         Objects.requireNonNull(slowWarning, "slowWarning");
+        Objects.requireNonNull(telemetry, "telemetry");
         if (queries.maximumQueries() != config.maximumGeneratorQueries()) {
             throw new IllegalArgumentException(
                     "PlannerQueryContext budget must match maximumGeneratorQueries");
         }
 
         long startedAt = nanoTime.getAsLong();
+        PlanningTelemetry measurements = new PlanningTelemetry(queries);
+        int acceptedSites = 0;
         try {
-            return planCore(
+            SitePlanningResult result = planCore(
                     seed,
                     config,
                     queries,
                     structure,
-                    configuredSpawnRadius);
+                    configuredSpawnRadius,
+                    measurements);
+            acceptedSites = result.candidates().size();
+            return result;
         } finally {
             long elapsedNanos =
                     Math.max(0L, nanoTime.getAsLong() - startedAt);
+            /*
+             * Reported for a failed run too: that is the one most worth
+             * having figures for.
+             */
+            report(telemetry, measurements, acceptedSites, elapsedNanos);
             if (elapsedNanos > SLOW_WARNING_NANOS) {
                 emitSlowWarning(slowWarning, elapsedNanos);
             }
+        }
+    }
+
+    private static void report(
+            Consumer<String> telemetry,
+            PlanningTelemetry measurements,
+            int acceptedSites,
+            long totalNanos) {
+        try {
+            telemetry.accept(measurements.describe(acceptedSites, totalNanos));
+        } catch (RuntimeException failure) {
+            AdaptiveStartingStructure.LOGGER.error(
+                    "Failed to report starting-structure planning measurements",
+                    failure);
         }
     }
 
@@ -129,16 +177,16 @@ public final class SitePlanner {
             ConfigSnapshot config,
             PlannerQueryContext queries,
             StructureDefinition structure,
-            int configuredSpawnRadius) {
+            int configuredSpawnRadius,
+            PlanningTelemetry measurements) {
         int budget = config.maximumGeneratorQueries();
         EnumMap<SpawnRejectionReason, Integer> spawnRejectionCounts =
                 new EnumMap<>(SpawnRejectionReason.class);
         int spawnValidationCount = 0;
         int spawnRejectedCandidateCount = 0;
         TheoreticalTerrainSource terrain = queries::baseColumn;
-        int validationRadius = config.requireSafeSpawnArea()
-                ? configuredSpawnRadius
-                : 0;
+        int validationRadius =
+                spawnValidationRadius(config, configuredSpawnRadius);
         List<SiteCandidate> acceptedCandidates = new ArrayList<>();
         CoarseSearchResult coarseResult = null;
         FineSearchResult fineResult = null;
@@ -154,21 +202,25 @@ public final class SitePlanner {
                 : CoarseCandidate.SearchBand.values()) {
             queries.limitNextPhase(
                     phaseLimit(budget, COARSE_QUERY_SHARE_PERCENT));
+            measurements.begin();
             CoarseSearchResult bandCoarse = CoarseSiteSearch.searchBand(
                     config,
                     queries,
                     structure,
                     band);
+            measurements.end("coarse");
             coarseResult = coarseResult == null
                     ? bandCoarse
                     : coarseResult.merge(bandCoarse);
 
             queries.limitNextPhase(
                     phaseLimit(budget, FINE_QUERY_SHARE_PERCENT));
+            measurements.begin();
             FineSearchResult bandFine = FineSiteEvaluator.evaluate(
                     config,
                     queries,
                     bandCoarse.acceptedCandidates());
+            measurements.end("fine");
             fineResult = fineResult == null
                     ? bandFine
                     : fineResult.merge(bandFine);
@@ -177,6 +229,7 @@ public final class SitePlanner {
             if (interruption == null) {
                 interruption = firstInterruption(bandCoarse, bandFine);
             }
+            measurements.begin();
 
             for (FineCandidateEvaluation evaluation
                     : bandFine.acceptedCandidates()) {
@@ -211,6 +264,7 @@ public final class SitePlanner {
                         spawnValidation));
             }
 
+            measurements.end("spawn");
             if (interruption != null
                     || acceptedCandidates.size() >= EARLY_EXIT_TARGET_SITES) {
                 break;
@@ -249,6 +303,31 @@ public final class SitePlanner {
             throw interruption.failure();
         }
         throw new SitePlanningException(diagnostics);
+    }
+
+    /**
+     * How far around the marker the spawn area has to be proven safe.
+     *
+     * <p>Reading one column of world noise is the most expensive query in
+     * planning, and proving a default spawn radius means reading 441 of them
+     * for every finalist. That is worth paying only when vanilla is free to
+     * put a player on any of those columns. Once arriving players are moved
+     * onto the marker, they are not: the marker's own column is the only one
+     * anyone stands on, and the other 440 buy a guarantee about places nobody
+     * reaches.
+     *
+     * <p>The radius actually used is stored with the chosen site, and the
+     * check after placement repeats it with that stored value, so turning the
+     * marker placement off later cannot retroactively fail a finished world.
+     */
+    static int spawnValidationRadius(
+            ConfigSnapshot config,
+            int configuredSpawnRadius) {
+        if (!config.requireSafeSpawnArea()
+                || config.placePlayerAtSpawnMarker()) {
+            return 0;
+        }
+        return configuredSpawnRadius;
     }
 
     static int phaseLimit(int budget, int sharePercent) {
