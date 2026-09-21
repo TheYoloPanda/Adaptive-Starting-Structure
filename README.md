@@ -112,7 +112,15 @@ spawn column in the full `spawnRadius` area must pass the same checks:
 requireSafeSpawnArea = true
 ```
 
-This option never changes the vanilla `spawnRadius` gamerule.
+This option never changes the vanilla `spawnRadius` gamerule, and it does not
+decide where anyone arrives: that is settled by `placePlayerAtSpawnMarker`
+below.
+
+The two work together. The area is only checked when vanilla is free to pick
+the arrival column, so with `placePlayerAtSpawnMarker` left on this option does
+nothing: the marker's own column is the only one anyone stands on, and proving
+the other 440 would cost one noise column each, for every candidate site. Turn
+`placePlayerAtSpawnMarker` off to make it bite.
 
 ### Arriving on the spawn marker
 
