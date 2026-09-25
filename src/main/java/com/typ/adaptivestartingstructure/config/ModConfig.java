@@ -172,6 +172,8 @@ public final class ModConfig {
             maximumCoarseCandidates = builder
                     .comment(
                             "Maximum number of candidates considered by the coarse search.",
+                            "Rotations that give the structure the same footprint extent are",
+                            "evaluated once and count once against this limit.",
                             "Values above " + MAX_COARSE_CANDIDATES
                                     + " are reset to the default when the file is loaded.")
                     .defineInRange(

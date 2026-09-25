@@ -7,9 +7,11 @@ import com.typ.adaptivestartingstructure.structure.StructureBounds;
 import com.typ.adaptivestartingstructure.structure.StructureDefinition;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.LongConsumer;
@@ -188,17 +190,13 @@ public final class SitePlanner {
             int configuredSpawnRadius,
             PlanningTelemetry measurements) {
         int budget = config.maximumGeneratorQueries();
-        EnumMap<SpawnRejectionReason, Integer> spawnRejectionCounts =
-                new EnumMap<>(SpawnRejectionReason.class);
-        int spawnValidationCount = 0;
-        int spawnRejectedCandidateCount = 0;
-        TheoreticalTerrainSource terrain = queries::baseColumn;
-        int validationRadius =
-                spawnValidationRadius(config, configuredSpawnRadius);
-        List<SiteCandidate> acceptedCandidates = new ArrayList<>();
+        Finalists finalists = new Finalists(
+                config,
+                queries,
+                structure,
+                configuredSpawnRadius,
+                measurements);
         CoarseSearchResult coarseResult = null;
-        FineSearchResult fineResult = null;
-        BudgetInterruption interruption = null;
 
         /*
          * Nearest first, a slice of positions at a time, stopping as soon as
@@ -218,8 +216,16 @@ public final class SitePlanner {
              * finishing each band gave.
              */
             int remainingFinalists = config.fineCandidateCount();
+            /*
+             * A slice puts forward the best rotation of each of its places and
+             * holds the others back until the band has offered every place.
+             * Putting them forward with the slice spent its leftover slots on
+             * the places it had just offered, so a band could run out on its
+             * first few places without reaching the rest.
+             */
+            List<CoarseCandidate> heldBack = new ArrayList<>();
             List<CoarseSiteSearch.LatticePosition> positions =
-                    CoarseSiteSearch.bandPositions(config, band);
+                    CoarseSiteSearch.bandPositions(config, structure, band);
             for (int from = 0; from < positions.size(); from += COARSE_SLICE) {
                 List<CoarseSiteSearch.LatticePosition> slice = positions.subList(
                         from,
@@ -237,64 +243,17 @@ public final class SitePlanner {
                 coarseResult = coarseResult == null
                         ? sliceCoarse
                         : coarseResult.merge(sliceCoarse);
+                sliceCoarse.budgetFailure().ifPresent(
+                        failure -> finalists.interrupt("coarse", failure));
 
-                queries.limitNextPhase(
-                        phaseLimit(budget, FINE_QUERY_SHARE_PERCENT));
-                measurements.begin();
-                FineSearchResult sliceFine = FineSiteEvaluator.evaluate(
-                        config,
-                        queries,
+                List<CoarseCandidate> best = new ArrayList<>();
+                separateRotations(
                         sliceCoarse.acceptedCandidates(),
-                        remainingFinalists);
-                measurements.end("fine");
-                remainingFinalists -= sliceFine.evaluations().size();
-                fineResult = fineResult == null
-                        ? sliceFine
-                        : fineResult.merge(sliceFine);
-
-                queries.limitNextPhase(budget);
-                if (interruption == null) {
-                    interruption = firstInterruption(sliceCoarse, sliceFine);
-                }
-                measurements.begin();
-                for (FineCandidateEvaluation evaluation
-                        : sliceFine.acceptedCandidates()) {
-                    FineCandidatePlan plan = evaluation.plan().orElseThrow();
-                    SpawnValidationResult spawnValidation;
-                    try {
-                        spawnValidation =
-                                TheoreticalSpawnValidator.validate(
-                                        validationRadius,
-                                        evaluation.candidate().structure(),
-                                        plan,
-                                        terrain);
-                    } catch (GeneratorQueryBudgetExceededException failure) {
-                        if (interruption == null) {
-                            interruption =
-                                    new BudgetInterruption("spawn", failure);
-                        }
-                        break;
-                    }
-                    spawnValidationCount++;
-                    if (!spawnValidation.accepted()) {
-                        spawnRejectedCandidateCount++;
-                        mergeCounts(
-                                spawnRejectionCounts,
-                                spawnValidation.rejectionCounts());
-                        continue;
-                    }
-
-                    acceptedCandidates.add(createSiteCandidate(
-                            structure,
-                            evaluation,
-                            configuredSpawnRadius,
-                            spawnValidation));
-                }
-                measurements.end("spawn");
-
-                if (interruption != null
-                        || acceptedCandidates.size()
-                                >= EARLY_EXIT_TARGET_SITES) {
+                        best,
+                        heldBack);
+                remainingFinalists -=
+                        finalists.evaluate(best, remainingFinalists);
+                if (finalists.finished()) {
                     break bands;
                 }
                 if (remainingFinalists <= 0) {
@@ -302,15 +261,37 @@ public final class SitePlanner {
                     break;
                 }
             }
+
+            /*
+             * Every place has been offered. What is left of the budget goes to
+             * the held-back rotations of places still without a site, one
+             * rotation per place at a time. A place that has a site gets none:
+             * another rotation of a working site is no alternative to it,
+             * since placement discards every rotation of a failed site
+             * together.
+             */
+            while (remainingFinalists > 0) {
+                List<CoarseCandidate> next = finalists.nextRotations(heldBack);
+                if (next.isEmpty()) {
+                    break;
+                }
+                remainingFinalists -=
+                        finalists.evaluate(next, remainingFinalists);
+                if (finalists.finished()) {
+                    break bands;
+                }
+            }
         }
 
         SitePlanningDiagnostics diagnostics = diagnostics(
                 coarseResult,
-                fineResult,
-                spawnValidationCount,
-                spawnRejectedCandidateCount,
+                finalists.fineResult,
+                finalists.spawnValidationCount,
+                finalists.spawnRejectedCandidateCount,
                 queries,
-                spawnRejectionCounts);
+                finalists.spawnRejectionCounts);
+        List<SiteCandidate> acceptedCandidates = finalists.sites;
+        BudgetInterruption interruption = finalists.interruption;
         if (!acceptedCandidates.isEmpty()) {
             if (interruption != null) {
                 AdaptiveStartingStructure.LOGGER.warn(
@@ -336,6 +317,28 @@ public final class SitePlanner {
             throw interruption.failure();
         }
         throw new SitePlanningException(diagnostics);
+    }
+
+    /**
+     * Splits a slice's ranked candidates into the best rotation of each place
+     * and all the others, both kept in rank order.
+     */
+    private static void separateRotations(
+            List<CoarseCandidate> ranked,
+            List<CoarseCandidate> best,
+            List<CoarseCandidate> others) {
+        Set<Long> places = new HashSet<>();
+        for (CoarseCandidate candidate : ranked) {
+            if (places.add(place(candidate.centerX(), candidate.centerZ()))) {
+                best.add(candidate);
+            } else {
+                others.add(candidate);
+            }
+        }
+    }
+
+    private static long place(int centerX, int centerZ) {
+        return ((long) centerX << 32) ^ (centerZ & 0xFFFFFFFFL);
     }
 
     /**
@@ -367,19 +370,149 @@ public final class SitePlanner {
         return Math.max(1, (int) ((long) budget * sharePercent / 100L));
     }
 
-    private static BudgetInterruption firstInterruption(
-            CoarseSearchResult coarseResult,
-            FineSearchResult fineResult) {
-        return coarseResult.budgetFailure()
-                .map(failure -> new BudgetInterruption("coarse", failure))
-                .or(() -> fineResult.budgetFailure()
-                        .map(failure -> new BudgetInterruption("fine", failure)))
-                .orElse(null);
-    }
-
     private record BudgetInterruption(
             String phase,
             GeneratorQueryBudgetExceededException failure) {
+    }
+
+    /**
+     * The fine and spawn stages, fed a few candidates at a time, and what
+     * they have produced so far.
+     */
+    private static final class Finalists {
+        private final ConfigSnapshot config;
+        private final PlannerQueryContext queries;
+        private final StructureDefinition structure;
+        private final int configuredSpawnRadius;
+        private final int validationRadius;
+        private final TheoreticalTerrainSource terrain;
+        private final PlanningTelemetry measurements;
+        private final EnumMap<SpawnRejectionReason, Integer> spawnRejectionCounts =
+                new EnumMap<>(SpawnRejectionReason.class);
+        private final List<SiteCandidate> sites = new ArrayList<>();
+        private final Set<Long> sitePlaces = new HashSet<>();
+        private FineSearchResult fineResult;
+        private int spawnValidationCount;
+        private int spawnRejectedCandidateCount;
+        private BudgetInterruption interruption;
+
+        private Finalists(
+                ConfigSnapshot config,
+                PlannerQueryContext queries,
+                StructureDefinition structure,
+                int configuredSpawnRadius,
+                PlanningTelemetry measurements) {
+            this.config = config;
+            this.queries = queries;
+            this.structure = structure;
+            this.configuredSpawnRadius = configuredSpawnRadius;
+            this.validationRadius =
+                    spawnValidationRadius(config, configuredSpawnRadius);
+            this.terrain = queries::baseColumn;
+            this.measurements = measurements;
+        }
+
+        /**
+         * Evaluates up to {@code finalistBudget} of the candidates and
+         * validates the spawn of each one accepted, returning how many were
+         * evaluated.
+         */
+        private int evaluate(
+                List<CoarseCandidate> candidates,
+                int finalistBudget) {
+            int budget = config.maximumGeneratorQueries();
+            queries.limitNextPhase(
+                    phaseLimit(budget, FINE_QUERY_SHARE_PERCENT));
+            measurements.begin();
+            FineSearchResult fine = FineSiteEvaluator.evaluate(
+                    config,
+                    queries,
+                    candidates,
+                    finalistBudget);
+            measurements.end("fine");
+            fineResult = fineResult == null
+                    ? fine
+                    : fineResult.merge(fine);
+            fine.budgetFailure().ifPresent(
+                    failure -> interrupt("fine", failure));
+
+            queries.limitNextPhase(budget);
+            measurements.begin();
+            for (FineCandidateEvaluation evaluation
+                    : fine.acceptedCandidates()) {
+                FineCandidatePlan plan = evaluation.plan().orElseThrow();
+                SpawnValidationResult spawnValidation;
+                try {
+                    spawnValidation =
+                            TheoreticalSpawnValidator.validate(
+                                    validationRadius,
+                                    evaluation.candidate().structure(),
+                                    plan,
+                                    terrain);
+                } catch (GeneratorQueryBudgetExceededException failure) {
+                    interrupt("spawn", failure);
+                    break;
+                }
+                spawnValidationCount++;
+                if (!spawnValidation.accepted()) {
+                    spawnRejectedCandidateCount++;
+                    mergeCounts(
+                            spawnRejectionCounts,
+                            spawnValidation.rejectionCounts());
+                    continue;
+                }
+
+                SiteCandidate site = createSiteCandidate(
+                        structure,
+                        evaluation,
+                        configuredSpawnRadius,
+                        spawnValidation);
+                sites.add(site);
+                sitePlaces.add(place(site.centerX(), site.centerZ()));
+            }
+            measurements.end("spawn");
+            return fine.evaluations().size();
+        }
+
+        /**
+         * Takes out of {@code heldBack} the next rotation of every place that
+         * has no site yet, in the order held. The rest of a place that has a
+         * site is dropped on the way.
+         */
+        private List<CoarseCandidate> nextRotations(
+                List<CoarseCandidate> heldBack) {
+            List<CoarseCandidate> next = new ArrayList<>();
+            List<CoarseCandidate> stillHeld = new ArrayList<>();
+            Set<Long> offered = new HashSet<>();
+            for (CoarseCandidate candidate : heldBack) {
+                long place = place(candidate.centerX(), candidate.centerZ());
+                if (sitePlaces.contains(place)) {
+                    continue;
+                }
+                if (offered.add(place)) {
+                    next.add(candidate);
+                } else {
+                    stillHeld.add(candidate);
+                }
+            }
+            heldBack.clear();
+            heldBack.addAll(stillHeld);
+            return next;
+        }
+
+        /** The first budget failure stands; later ones are its consequences. */
+        private void interrupt(
+                String phase,
+                GeneratorQueryBudgetExceededException failure) {
+            if (interruption == null) {
+                interruption = new BudgetInterruption(phase, failure);
+            }
+        }
+
+        private boolean finished() {
+            return interruption != null
+                    || sites.size() >= EARLY_EXIT_TARGET_SITES;
+        }
     }
 
     private static SiteCandidate createSiteCandidate(
