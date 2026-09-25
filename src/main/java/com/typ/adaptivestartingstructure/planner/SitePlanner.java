@@ -344,8 +344,8 @@ public final class SitePlanner {
     /**
      * How far around the marker the spawn area has to be proven safe.
      *
-     * <p>Reading one column of world noise is the most expensive query in
-     * planning, and proving a default spawn radius means reading 441 of them
+     * <p>Reading one column of world noise is as dear as any query planning
+     * makes, and proving a default spawn radius means reading 441 of them
      * for every finalist. That is worth paying only when vanilla is free to
      * put a player on any of those columns. Once arriving players are moved
      * onto the marker, they are not: the marker's own column is the only one

@@ -1,5 +1,6 @@
 package com.typ.adaptivestartingstructure.planner;
 
+import java.util.Optional;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.levelgen.Heightmap;
 
@@ -9,6 +10,17 @@ public interface PlannerWorldQuerySource {
     int baseHeight(int x, int z, Heightmap.Types heightmapType);
 
     TerrainColumn baseColumn(int x, int z);
+
+    /**
+     * Both worldgen surfaces at one position. A source that can read them in
+     * one pass over the column should; asking for each is the fallback.
+     */
+    default SurfaceHeights surfaceHeights(int x, int z) {
+        return new SurfaceHeights(
+                baseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG),
+                baseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG),
+                Optional.empty());
+    }
 
     BiomeSample biomeAtQuart(int quartX, int quartY, int quartZ);
 

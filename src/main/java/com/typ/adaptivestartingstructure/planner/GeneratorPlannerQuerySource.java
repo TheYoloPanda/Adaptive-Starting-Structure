@@ -1,6 +1,7 @@
 package com.typ.adaptivestartingstructure.planner;
 
 import java.util.Objects;
+import java.util.Optional;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.server.level.ServerChunkCache;
@@ -77,6 +78,20 @@ public final class GeneratorPlannerQuerySource implements PlannerWorldQuerySourc
                 column,
                 heightAccessor.getMinBuildHeight(),
                 heightAccessor.getMaxBuildHeight());
+    }
+
+    /*
+     * Each height query walks the noise column down from the top until its
+     * heightmap matches, so the two surfaces cost two walks of the same column.
+     * A whole column costs about as much as one of those walks and answers both.
+     */
+    @Override
+    public SurfaceHeights surfaceHeights(int x, int z) {
+        TerrainColumn column = baseColumn(x, z);
+        return new SurfaceHeights(
+                column.surfaceHeight(Heightmap.Types.OCEAN_FLOOR_WG),
+                column.surfaceHeight(Heightmap.Types.WORLD_SURFACE_WG),
+                Optional.of(column));
     }
 
     @Override
