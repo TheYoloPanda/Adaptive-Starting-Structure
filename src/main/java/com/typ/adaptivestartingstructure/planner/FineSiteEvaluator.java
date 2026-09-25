@@ -171,48 +171,58 @@ public final class FineSiteEvaluator {
             return FineCandidateEvaluation.incomplete(candidate, reasons);
         }
 
-        ColumnObservation[] observations =
-                new ColumnObservation[geometry.samplePoints().size()];
-        boolean allHeightsValid = true;
+        List<FineSamplingGeometry.SamplePoint> points = geometry.samplePoints();
+        ColumnObservation[] observations = new ColumnObservation[points.size()];
+        SampleOrder order = SampleOrder.of(points);
         BiomeClassifier.Classification siteBiome =
                 BiomeClassifier.Classification.PREFERRED;
-        for (int index = 0; index < geometry.samplePoints().size(); index++) {
-            FineSamplingGeometry.SamplePoint point = geometry.samplePoints().get(index);
-            SurfaceHeights surface = queries.surfaceHeights(point.x(), point.z());
-            int terrainHeight = surface.oceanFloor();
-            int worldSurfaceHeight = surface.worldSurface();
-            if (!isValidHeight(terrainHeight, queries)
-                    || !isValidHeight(worldSurfaceHeight, queries)
-                    || worldSurfaceHeight < terrainHeight) {
-                reasons.add(FineRejectionReason.INVALID_TERRAIN_HEIGHT);
-                allHeightsValid = false;
+
+        /*
+         * Every limit on the footprint is checked while the footprint is being
+         * read, and only a site whose footprint passed reads its blend ring.
+         * Most finalists fail on the footprint, and reading the rest of them
+         * decided nothing but how many reasons a rejected site was listed
+         * under.
+         */
+        int minimumGroundY = Integer.MAX_VALUE;
+        int maximumGroundY = Integer.MIN_VALUE;
+        int minimumPerimeterY = Integer.MAX_VALUE;
+        int maximumPerimeterY = Integer.MIN_VALUE;
+        for (int index : order.footprint()) {
+            FineSamplingGeometry.SamplePoint point = points.get(index);
+            ColumnObservation observation = observe(queries, point, reasons);
+            if (observation == null) {
+                return FineCandidateEvaluation.incomplete(candidate, reasons);
+            }
+            observations[index] = observation;
+            siteBiome = combineBiomeClassifications(siteBiome, observation.biome());
+            minimumGroundY = Math.min(minimumGroundY, observation.groundY());
+            maximumGroundY = Math.max(maximumGroundY, observation.groundY());
+            if (maximumGroundY - minimumGroundY > config.maximumElevationRange()) {
+                reasons.add(FineRejectionReason.ELEVATION_RANGE_EXCEEDED);
+                return FineCandidateEvaluation.incomplete(candidate, reasons);
+            }
+            if (!point.perimeter()) {
                 continue;
             }
-
-            int groundY = terrainHeight - 1;
-            BiomeClassifier.Classification biome =
-                    queries.classifyBiomeAt(point.x(), groundY, point.z());
-            siteBiome = combineBiomeClassifications(siteBiome, biome);
-            if (biome == BiomeClassifier.Classification.EXCLUDED) {
-                reasons.add(FineRejectionReason.EXCLUDED_BIOME);
-            } else if (biome == BiomeClassifier.Classification.UNLISTED) {
-                reasons.add(FineRejectionReason.UNLISTED_BIOME);
+            minimumPerimeterY = Math.min(minimumPerimeterY, observation.groundY());
+            maximumPerimeterY = Math.max(maximumPerimeterY, observation.groundY());
+            /*
+             * Whatever level the median settles on, one of two perimeter
+             * samples lies at least half their difference away from it, so a
+             * spread beyond twice the limit has already failed.
+             */
+            if ((long) maximumPerimeterY - minimumPerimeterY
+                    > 2L * config.maximumPerimeterError()) {
+                reasons.add(FineRejectionReason.PERIMETER_ERROR_EXCEEDED);
+                return FineCandidateEvaluation.incomplete(candidate, reasons);
             }
-            observations[index] = new ColumnObservation(
-                    groundY,
-                    terrainHeight,
-                    worldSurfaceHeight,
-                    biome,
-                    surface.column());
-        }
-        if (!allHeightsValid) {
-            return FineCandidateEvaluation.incomplete(candidate, reasons);
         }
 
         int[] footprintHeights = new int[geometry.footprintSampleCount()];
         int footprintIndex = 0;
-        for (int index = 0; index < geometry.samplePoints().size(); index++) {
-            if (geometry.samplePoints().get(index).footprint()) {
+        for (int index = 0; index < points.size(); index++) {
+            if (points.get(index).footprint()) {
                 footprintHeights[footprintIndex++] = observations[index].groundY;
             }
         }
@@ -222,11 +232,27 @@ public final class FineSiteEvaluator {
                 || plan.structureBounds().maximum().getY() >= queries.maxBuildHeight()) {
             reasons.add(FineRejectionReason.STRUCTURE_OUTSIDE_BUILD_HEIGHT);
         }
+        addFootprintRejections(
+                calculateMetrics(geometry, observations, groundSurfaceY, 0, siteBiome),
+                config,
+                reasons);
+        if (!reasons.isEmpty()) {
+            return FineCandidateEvaluation.incomplete(candidate, reasons);
+        }
+
+        for (int index : order.blend()) {
+            ColumnObservation observation = observe(queries, points.get(index), reasons);
+            if (observation == null) {
+                return FineCandidateEvaluation.incomplete(candidate, reasons);
+            }
+            observations[index] = observation;
+            siteBiome = combineBiomeClassifications(siteBiome, observation.biome());
+        }
 
         int placementOriginY = plan.placementOrigin().getY();
         int waterColumns = 0;
-        for (int index = 0; index < geometry.samplePoints().size(); index++) {
-            FineSamplingGeometry.SamplePoint point = geometry.samplePoints().get(index);
+        for (int index = 0; index < points.size(); index++) {
+            FineSamplingGeometry.SamplePoint point = points.get(index);
             ColumnObservation observation = observations[index];
             boolean inspectSurface =
                     observation.worldSurfaceHeight > observation.terrainHeight;
@@ -275,6 +301,52 @@ public final class FineSiteEvaluator {
                 groundSurfaceY,
                 waterColumns,
                 siteBiome);
+        if (metrics.waterFraction() > config.maximumWaterFraction()) {
+            reasons.add(FineRejectionReason.WATER_FRACTION_EXCEEDED);
+        }
+        return FineCandidateEvaluation.complete(candidate, plan, metrics, reasons);
+    }
+
+    /**
+     * Reads one sample's surfaces and biome, or records why the site cannot
+     * stand on it and returns null.
+     */
+    private static ColumnObservation observe(
+            PlannerQueryContext queries,
+            FineSamplingGeometry.SamplePoint point,
+            Set<FineRejectionReason> reasons) {
+        SurfaceHeights surface = queries.surfaceHeights(point.x(), point.z());
+        int terrainHeight = surface.oceanFloor();
+        int worldSurfaceHeight = surface.worldSurface();
+        if (!isValidHeight(terrainHeight, queries)
+                || !isValidHeight(worldSurfaceHeight, queries)
+                || worldSurfaceHeight < terrainHeight) {
+            reasons.add(FineRejectionReason.INVALID_TERRAIN_HEIGHT);
+            return null;
+        }
+        int groundY = terrainHeight - 1;
+        BiomeClassifier.Classification biome =
+                queries.classifyBiomeAt(point.x(), groundY, point.z());
+        if (biome == BiomeClassifier.Classification.EXCLUDED) {
+            reasons.add(FineRejectionReason.EXCLUDED_BIOME);
+            return null;
+        }
+        if (biome == BiomeClassifier.Classification.UNLISTED) {
+            reasons.add(FineRejectionReason.UNLISTED_BIOME);
+            return null;
+        }
+        return new ColumnObservation(
+                groundY,
+                terrainHeight,
+                worldSurfaceHeight,
+                biome,
+                surface.column());
+    }
+
+    private static void addFootprintRejections(
+            FineCandidateMetrics metrics,
+            ConfigSnapshot config,
+            Set<FineRejectionReason> reasons) {
         if (metrics.elevationRange() > config.maximumElevationRange()) {
             reasons.add(FineRejectionReason.ELEVATION_RANGE_EXCEEDED);
         }
@@ -287,10 +359,58 @@ public final class FineSiteEvaluator {
         if (metrics.maximumPerimeterError() > config.maximumPerimeterError()) {
             reasons.add(FineRejectionReason.PERIMETER_ERROR_EXCEEDED);
         }
-        if (metrics.waterFraction() > config.maximumWaterFraction()) {
-            reasons.add(FineRejectionReason.WATER_FRACTION_EXCEEDED);
+    }
+
+    /**
+     * The footprint samples in the order they are read, then the blend ring's.
+     *
+     * <p>The perimeter comes first, farthest from the center first, so the
+     * corners lead: a site whose edges sit at different heights, the commonest
+     * way a finalist fails, shows it between opposite corners, and the check
+     * on the perimeter's spread can stop it after a few reads.
+     */
+    private record SampleOrder(int[] footprint, int[] blend) {
+        static SampleOrder of(List<FineSamplingGeometry.SamplePoint> points) {
+            List<Integer> perimeter = new ArrayList<>();
+            List<Integer> interior = new ArrayList<>();
+            List<Integer> blend = new ArrayList<>();
+            int minimumX = Integer.MAX_VALUE;
+            int maximumX = Integer.MIN_VALUE;
+            int minimumZ = Integer.MAX_VALUE;
+            int maximumZ = Integer.MIN_VALUE;
+            for (int index = 0; index < points.size(); index++) {
+                FineSamplingGeometry.SamplePoint point = points.get(index);
+                if (!point.footprint()) {
+                    blend.add(index);
+                    continue;
+                }
+                (point.perimeter() ? perimeter : interior).add(index);
+                minimumX = Math.min(minimumX, point.x());
+                maximumX = Math.max(maximumX, point.x());
+                minimumZ = Math.min(minimumZ, point.z());
+                maximumZ = Math.max(maximumZ, point.z());
+            }
+            long doubledCenterX = (long) minimumX + maximumX;
+            long doubledCenterZ = (long) minimumZ + maximumZ;
+            perimeter.sort(Comparator.comparingLong((Integer index) -> {
+                FineSamplingGeometry.SamplePoint point = points.get(index);
+                long offsetX = 2L * point.x() - doubledCenterX;
+                long offsetZ = 2L * point.z() - doubledCenterZ;
+                return -(offsetX * offsetX + offsetZ * offsetZ);
+            }).thenComparingInt(index -> index));
+
+            int[] footprint = new int[perimeter.size() + interior.size()];
+            int next = 0;
+            for (int index : perimeter) {
+                footprint[next++] = index;
+            }
+            for (int index : interior) {
+                footprint[next++] = index;
+            }
+            return new SampleOrder(
+                    footprint,
+                    blend.stream().mapToInt(Integer::intValue).toArray());
         }
-        return FineCandidateEvaluation.complete(candidate, plan, metrics, reasons);
     }
 
     private static FineCandidateMetrics calculateMetrics(
