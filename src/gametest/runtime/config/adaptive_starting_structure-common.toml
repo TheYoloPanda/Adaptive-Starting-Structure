@@ -17,28 +17,28 @@ nearCandidateSpacing = 1
 # Range: 1 ~ 30000000
 farCandidateSpacing = 1
 #Maximum number of candidates considered by the coarse search.
-#Values above 16384 are rejected before planning.
+#Values above 16384 are reset to the default when the file is loaded.
 # Default: 4096
-# Range: > 1
+# Range: 1 ~ 16384
 maximumCoarseCandidates = 1
 #Number of top coarse candidates evaluated by the fine search.
-#Values above 128 are rejected before planning.
+#Values above 128 are reset to the default when the file is loaded.
 # Default: 32
-# Range: > 1
+# Range: 1 ~ 128
 fineCandidateCount = 1
 #Sampling step in blocks during fine evaluation.
 # Default: 4
 # Range: 1 ~ 30000000
 fineSampleStep = 1
 #Maximum generator queries allowed for one planning operation.
-#Values above 500000 are rejected before planning.
+#Values above 500000 are reset to the default when the file is loaded.
 # Default: 150000
-# Range: > 1
+# Range: 1 ~ 500000
 maximumGeneratorQueries = 5000
 #Terrain blend width in blocks outside the structure footprint.
-#Values above 128 are rejected before planning.
+#Values above 128 are reset to the default when the file is loaded.
 # Default: 24
-# Range: 1 ~ 30000000
+# Range: 1 ~ 128
 blendWidth = 24
 #Maximum number of blocks that terrain may be cut.
 # Default: 8
@@ -67,6 +67,7 @@ requireSafeSpawnArea = false
 #Whether non-preferred land biomes may be accepted with lower priority.
 allowUnlistedLandBiomes = true
 #Biome tags excluded from site selection.
+#This list is the whole list: add your own tags to it.
 excludedBiomeTags = ["minecraft:is_ocean", "minecraft:is_river", "minecraft:is_beach", "minecraft:is_mountain"]
 #Horizontal rotations that may be selected for the structure.
 allowedRotations = ["none"]
@@ -74,4 +75,17 @@ allowedRotations = ["none"]
 additionalPreferredBiomes = []
 #Additional biome IDs excluded from site selection.
 additionalExcludedBiomes = []
-#Additional biome tag IDs excluded from site selection.
+#Biome IDs to drop from the built-in preferred list.
+#Unknown IDs are ignored with a warning.
+removedPreferredBiomes = []
+#Biome IDs to drop from the built-in excluded list.
+#Unknown IDs are ignored with a warning.
+removedExcludedBiomes = []
+#What to do with a world whose starting-structure state blocks startup, which happens when the game died during placement.
+#'block' refuses to start so the half-modified world is not accepted silently.
+#'skip' gives up on the starting structure and loads the world as it is, which may leave partial terrain or structure blocks behind.
+blockedStateRecovery = "block"
+#Whether a player who arrives at the world spawn is moved onto the structure's spawn marker.
+#Vanilla picks a column near the world spawn and puts the player on that column's surface, which for a structure with a roof is the roof, so the marker is otherwise rarely where anyone actually arrives.
+#Only applies to players with no bed or charged respawn anchor who arrive inside the vanilla spawn area, and only until placed once.
+placePlayerAtSpawnMarker = true
