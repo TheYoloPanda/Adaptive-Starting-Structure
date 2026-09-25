@@ -7,7 +7,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -99,7 +101,7 @@ public final class CoarseSiteSearch {
                 queries,
                 structure,
                 band,
-                bandPositions(config, band));
+                bandPositions(config, structure, band));
     }
 
     /**
@@ -114,17 +116,25 @@ public final class CoarseSiteSearch {
      */
     public static List<LatticePosition> bandPositions(
             ConfigSnapshot config,
+            StructureDefinition structure,
             CoarseCandidate.SearchBand band) {
         Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(structure, "structure");
         Objects.requireNonNull(band, "band");
-        return latticePositions(band, positionBudget(config, band), config);
+        int extents =
+                footprintExtents(structure, config.allowedRotations()).size();
+        return latticePositions(
+                band,
+                positionBudget(config, extents, band),
+                config);
     }
 
     private static int positionBudget(
             ConfigSnapshot config,
+            int footprintExtents,
             CoarseCandidate.SearchBand band) {
         int locationBudget =
-                config.maximumCoarseCandidates() / config.allowedRotations().size();
+                config.maximumCoarseCandidates() / footprintExtents;
         if (locationBudget == 0) {
             throw new IllegalArgumentException(
                     "maximumCoarseCandidates must allow one complete set of rotations");
@@ -162,18 +172,16 @@ public final class CoarseSiteSearch {
         Objects.requireNonNull(band, "band");
         Objects.requireNonNull(positions, "positions");
 
-        List<Rotation> rotations = config.allowedRotations();
-        int locationBudget = config.maximumCoarseCandidates() / rotations.size();
-        if (locationBudget == 0) {
+        List<List<RotatedStructureView>> extents =
+                footprintExtents(structure, config.allowedRotations());
+        if (config.maximumCoarseCandidates() / extents.size() == 0) {
             throw new IllegalArgumentException(
                     "maximumCoarseCandidates must allow one complete set of rotations");
         }
 
         int expectedCandidates = (int) Math.min(
                 4096L,
-                Math.min(
-                        config.maximumCoarseCandidates(),
-                        (long) positions.size() * rotations.size()));
+                (long) positions.size() * config.allowedRotations().size());
         List<CoarseCandidate> candidates = new ArrayList<>(expectedCandidates);
         Set<Long> visitedCenters = new HashSet<>();
         BlockPos origin = queries.suggestedSpawnOrigin();
@@ -185,18 +193,46 @@ public final class CoarseSiteSearch {
                 origin,
                 config,
                 queries,
-                structure,
-                rotations,
+                extents,
                 visitedCenters,
                 candidates,
                 diagnostics);
 
         candidates.sort(COARSE_ORDER);
-        if (candidates.size() > config.maximumCoarseCandidates()) {
+        if ((long) visitedCenters.size() * extents.size()
+                > config.maximumCoarseCandidates()) {
             throw new IllegalStateException(
                     "Coarse search exceeded maximumCoarseCandidates");
         }
         return diagnostics.result(candidates, budgetFailure);
+    }
+
+    /**
+     * The allowed rotations, grouped by the extent they give the footprint,
+     * each group in the configured order.
+     *
+     * <p>Nothing this search measures depends on a rotation beyond that
+     * extent: the samples come from the bounding box, and the vertical fit
+     * only from heights, which no horizontal rotation changes. A quarter turn
+     * swaps the extent and a half turn keeps it, so the rotations fall into
+     * at most two groups, and into one for a square footprint. Each group is
+     * evaluated once and its result shared by every rotation in it, and the
+     * position budget is divided by the groups rather than the rotations:
+     * counting rotations charged four evaluations for what cost one or two,
+     * and thinned the lattice to pay for them.
+     */
+    static List<List<RotatedStructureView>> footprintExtents(
+            StructureDefinition structure,
+            List<Rotation> rotations) {
+        Map<Long, List<RotatedStructureView>> byExtent = new LinkedHashMap<>();
+        for (Rotation rotation : rotations) {
+            RotatedStructureView view = structure.view(rotation);
+            byExtent.computeIfAbsent(
+                            pack(view.size().getX(), view.size().getZ()),
+                            ignored -> new ArrayList<>())
+                    .add(view);
+        }
+        return List.copyOf(byExtent.values());
     }
 
     /**
@@ -211,8 +247,7 @@ public final class CoarseSiteSearch {
             BlockPos origin,
             ConfigSnapshot config,
             PlannerQueryContext queries,
-            StructureDefinition structure,
-            List<Rotation> rotations,
+            List<List<RotatedStructureView>> extents,
             Set<Long> visitedCenters,
             List<CoarseCandidate> candidates,
             SearchDiagnostics diagnostics) {
@@ -222,7 +257,7 @@ public final class CoarseSiteSearch {
             if (centerX < Integer.MIN_VALUE || centerX > Integer.MAX_VALUE
                     || centerZ < Integer.MIN_VALUE || centerZ > Integer.MAX_VALUE) {
                 diagnostics.rejectCandidates(
-                        rotations.size(),
+                        config.allowedRotations().size(),
                         CoarseRejectionReason.AREA_OUTSIDE_WORLD_LIMITS);
                 continue;
             }
@@ -233,9 +268,8 @@ public final class CoarseSiteSearch {
             }
 
             long distanceSquared = position.distanceSquared();
-            for (Rotation rotation : rotations) {
-                diagnostics.beginCandidate();
-                RotatedStructureView view = structure.view(rotation);
+            for (List<RotatedStructureView> sameExtent : extents) {
+                diagnostics.beginCandidates(sameExtent.size());
                 CoarseCandidate candidate;
                 try {
                     candidate = evaluateCandidate(
@@ -243,20 +277,41 @@ public final class CoarseSiteSearch {
                             candidateZ,
                             band,
                             distanceSquared,
-                            view,
+                            sameExtent.getFirst(),
                             config,
                             queries,
                             diagnostics);
                 } catch (GeneratorQueryBudgetExceededException budgetFailure) {
-                    diagnostics.abandonCandidate();
+                    diagnostics.abandonCandidates();
                     return budgetFailure;
                 }
                 if (candidate != null) {
                     candidates.add(candidate);
+                    for (RotatedStructureView view
+                            : sameExtent.subList(1, sameExtent.size())) {
+                        candidates.add(rotated(candidate, view));
+                    }
                 }
             }
         }
         return null;
+    }
+
+    /** The same evaluation, for another rotation that shares its extent. */
+    private static CoarseCandidate rotated(
+            CoarseCandidate evaluated,
+            RotatedStructureView structure) {
+        return new CoarseCandidate(
+                evaluated.centerX(),
+                evaluated.centerZ(),
+                evaluated.searchBand(),
+                structure,
+                evaluated.minimumX(),
+                evaluated.maximumX(),
+                evaluated.minimumZ(),
+                evaluated.maximumZ(),
+                evaluated.distanceSquared(),
+                evaluated.metrics());
     }
 
     private static CoarseCandidate evaluateCandidate(
@@ -701,19 +756,23 @@ public final class CoarseSiteSearch {
                 new EnumMap<>(CoarseRejectionReason.class);
         private int evaluatedCandidateCount;
         private int rejectedCandidateCount;
+        /* The rotations the evaluation in progress decides for at once. */
+        private int candidatesInEvaluation;
 
-        private void beginCandidate() {
+        private void beginCandidates(int count) {
+            candidatesInEvaluation = count;
             evaluatedCandidateCount =
-                    Math.incrementExact(evaluatedCandidateCount);
+                    Math.addExact(evaluatedCandidateCount, count);
         }
 
         /*
          * A candidate cut short by the query budget is neither accepted nor
          * rejected, so it must leave the evaluated count untouched.
          */
-        private void abandonCandidate() {
-            evaluatedCandidateCount =
-                    Math.decrementExact(evaluatedCandidateCount);
+        private void abandonCandidates() {
+            evaluatedCandidateCount = Math.subtractExact(
+                    evaluatedCandidateCount,
+                    candidatesInEvaluation);
         }
 
         private void rejectCandidates(
@@ -727,9 +786,13 @@ public final class CoarseSiteSearch {
         }
 
         private CoarseCandidate reject(CoarseRejectionReason reason) {
-            rejectionCounts.merge(reason, 1, Math::addExact);
-            rejectedCandidateCount =
-                    Math.incrementExact(rejectedCandidateCount);
+            rejectionCounts.merge(
+                    reason,
+                    candidatesInEvaluation,
+                    Math::addExact);
+            rejectedCandidateCount = Math.addExact(
+                    rejectedCandidateCount,
+                    candidatesInEvaluation);
             return null;
         }
 

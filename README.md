@@ -231,6 +231,14 @@ that generates no chunks, and it is deliberately conservative: it does not
 check whether the structure's own biome conditions would let it generate there,
 so it lowers a site's rank but never rejects it.
 
+Each place is put forward in its best allowed rotation. Its other rotations
+are tried only once the band has offered every place, and only if that place
+has not produced a usable site, so the alternatives kept for placement are
+always different places: when a site fails its final check, every rotation of
+it is discarded together. Rotations that leave the structure's footprint
+extent unchanged are judged together, and count once against
+`maximumCoarseCandidates`.
+
 The search itself does not read the world seed. Positions come from the
 lattice, and the seed decides the terrain those positions are judged on.
 
