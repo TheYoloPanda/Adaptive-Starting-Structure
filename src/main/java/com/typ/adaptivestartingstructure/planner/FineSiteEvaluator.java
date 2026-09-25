@@ -17,7 +17,6 @@ import java.util.Optional;
 import net.minecraft.core.BlockPos;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.block.Rotation;
-import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.Fluids;
 
 public final class FineSiteEvaluator {
@@ -179,15 +178,9 @@ public final class FineSiteEvaluator {
                 BiomeClassifier.Classification.PREFERRED;
         for (int index = 0; index < geometry.samplePoints().size(); index++) {
             FineSamplingGeometry.SamplePoint point = geometry.samplePoints().get(index);
-            int terrainHeight = queries.baseHeight(
-                    point.x(),
-                    point.z(),
-                    Heightmap.Types.OCEAN_FLOOR_WG);
-            int worldSurfaceHeight =
-                    queries.baseHeight(
-                            point.x(),
-                            point.z(),
-                            Heightmap.Types.WORLD_SURFACE_WG);
+            SurfaceHeights surface = queries.surfaceHeights(point.x(), point.z());
+            int terrainHeight = surface.oceanFloor();
+            int worldSurfaceHeight = surface.worldSurface();
             if (!isValidHeight(terrainHeight, queries)
                     || !isValidHeight(worldSurfaceHeight, queries)
                     || worldSurfaceHeight < terrainHeight) {
@@ -209,7 +202,8 @@ public final class FineSiteEvaluator {
                     groundY,
                     terrainHeight,
                     worldSurfaceHeight,
-                    biome);
+                    biome,
+                    surface.column());
         }
         if (!allHeightsValid) {
             return FineCandidateEvaluation.incomplete(candidate, reasons);
@@ -242,9 +236,8 @@ public final class FineSiteEvaluator {
             /*
              * Explicit air that sits entirely at or above the worldgen surface
              * cannot meet a fluid: the noise column is air up there by
-             * definition. Reading the column anyway made the most expensive
-             * query in planning near-mandatory for every footprint sample of
-             * any structure with a hollow interior.
+             * definition, so there is nothing to inspect and, for a sample
+             * whose heights came from the cache, no column worth reading.
              */
             boolean inspectAir = columnAir != null
                     && (long) placementOriginY + columnAir.minimumRelativeY()
@@ -253,7 +246,8 @@ public final class FineSiteEvaluator {
                 continue;
             }
 
-            TerrainColumn column = queries.baseColumn(point.x(), point.z());
+            TerrainColumn column = observation.column().orElseGet(
+                    () -> queries.baseColumn(point.x(), point.z()));
             SurfaceFluid fluid = inspectSurface
                     ? classifyFluidRange(
                             column,
@@ -545,7 +539,8 @@ public final class FineSiteEvaluator {
             int groundY,
             int terrainHeight,
             int worldSurfaceHeight,
-            BiomeClassifier.Classification biome) {
+            BiomeClassifier.Classification biome,
+            Optional<TerrainColumn> column) {
     }
 
     private enum SurfaceFluid {

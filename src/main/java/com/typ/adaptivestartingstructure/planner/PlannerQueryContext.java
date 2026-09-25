@@ -4,6 +4,7 @@ import com.typ.adaptivestartingstructure.config.ConfigSnapshot;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Registry;
 import net.minecraft.core.QuartPos;
@@ -92,6 +93,39 @@ public final class PlannerQueryContext {
         heightCalls++;
         heightCache.put(key, height);
         return height;
+    }
+
+    /**
+     * Both worldgen surfaces at one position, charged as a single query.
+     *
+     * <p>A column the source read them from is handed back rather than cached.
+     * The caller inspects it next, and caching one per sample would keep a
+     * full column of block states for every sample until planning ends.
+     */
+    public SurfaceHeights surfaceHeights(int x, int z) {
+        HeightQuery oceanFloorKey =
+                new HeightQuery(x, z, Heightmap.Types.OCEAN_FLOOR_WG);
+        HeightQuery worldSurfaceKey =
+                new HeightQuery(x, z, Heightmap.Types.WORLD_SURFACE_WG);
+        Integer cachedOceanFloor = heightCache.get(oceanFloorKey);
+        Integer cachedWorldSurface = heightCache.get(worldSurfaceKey);
+        if (cachedOceanFloor != null && cachedWorldSurface != null) {
+            heightHits++;
+            return new SurfaceHeights(
+                    cachedOceanFloor,
+                    cachedWorldSurface,
+                    Optional.empty());
+        }
+        consumeQuery("surface heights at [" + x + ", " + z + "]");
+        long startedAt = System.nanoTime();
+        SurfaceHeights heights = Objects.requireNonNull(
+                source.surfaceHeights(x, z),
+                "surfaceHeights");
+        heightNanos += elapsedSince(startedAt);
+        heightCalls++;
+        heightCache.put(oceanFloorKey, heights.oceanFloor());
+        heightCache.put(worldSurfaceKey, heights.worldSurface());
+        return heights;
     }
 
     public TerrainColumn baseColumn(int x, int z) {

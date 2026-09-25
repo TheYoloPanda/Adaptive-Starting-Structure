@@ -2,8 +2,10 @@ package com.typ.adaptivestartingstructure.planner;
 
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.function.Predicate;
 import net.minecraft.world.level.NoiseColumn;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.Heightmap;
 
 public final class TerrainColumn {
     private final int minY;
@@ -54,5 +56,21 @@ public final class TerrainColumn {
                             + minY + ", " + maxYExclusive() + ")");
         }
         return states[y - minY];
+    }
+
+    /**
+     * The height the generator's own query for {@code heightmap} returns for
+     * this column: one above the highest block the heightmap counts, or the
+     * bottom of the column when it counts none. It has to match that query
+     * exactly, since planning mixes heights read either way.
+     */
+    public int surfaceHeight(Heightmap.Types heightmap) {
+        Predicate<BlockState> counted = heightmap.isOpaque();
+        for (int index = states.length - 1; index >= 0; index--) {
+            if (counted.test(states[index])) {
+                return minY + index + 1;
+            }
+        }
+        return minY;
     }
 }

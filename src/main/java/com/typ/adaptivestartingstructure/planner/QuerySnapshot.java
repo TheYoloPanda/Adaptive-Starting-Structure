@@ -7,10 +7,11 @@ import java.util.Objects;
  * What a planning run has asked the world, by kind of question.
  *
  * <p>Planning is bounded by a query budget and its cost is dominated by which
- * kind of query it spends that budget on: a noise column is far dearer than a
- * heightmap sample. Without this split a slow world creation reports one total
- * and leaves nothing to reason from, and a change that claims to make the
- * search cheaper cannot be shown to have done so.
+ * kind of query it spends that budget on: a heightmap sample or a noise column
+ * walks the world's noise and costs around a hundred biome lookups. Without
+ * this split a slow world creation reports one total and leaves nothing to
+ * reason from, and a change that claims to make the search cheaper cannot be
+ * shown to have done so.
  */
 public record QuerySnapshot(
         Count height,
