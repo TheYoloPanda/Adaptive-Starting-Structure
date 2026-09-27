@@ -4,10 +4,18 @@ import java.util.function.IntFunction;
 import java.util.function.Predicate;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.world.level.block.BambooSaplingBlock;
+import net.minecraft.world.level.block.BambooStalkBlock;
 import net.minecraft.world.level.block.BeehiveBlock;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.BushBlock;
+import net.minecraft.world.level.block.CactusBlock;
 import net.minecraft.world.level.block.CocoaBlock;
+import net.minecraft.world.level.block.HugeMushroomBlock;
 import net.minecraft.world.level.block.LeavesBlock;
+import net.minecraft.world.level.block.SnowLayerBlock;
+import net.minecraft.world.level.block.SugarCaneBlock;
 import net.minecraft.world.level.block.VineBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -31,6 +39,7 @@ final class TerrainSurfaceClassifier {
             int surfaceHeight,
             IntFunction<BlockState> stateAtY,
             Predicate<BlockState> vegetationClassifier) {
+        BlockState above = Blocks.AIR.defaultBlockState();
         for (int y = surfaceHeight - 1;
                 y >= minimumBuildHeight;
                 y--) {
@@ -39,9 +48,16 @@ final class TerrainSurfaceClassifier {
                 throw new PlacementPreparationException(
                         "World returned a null block state while locating terrain");
             }
-            if (isTerrainMaterial(state, vegetationClassifier)) {
+            if (isTerrainMaterial(state, vegetationClassifier)
+                    && !hangsFromTree(
+                            above,
+                            y,
+                            minimumBuildHeight,
+                            stateAtY,
+                            vegetationClassifier)) {
                 return y;
             }
+            above = state;
         }
         throw new UnsuitableGeneratedSiteException(
                 "Generated column contains no solid terrain surface");
@@ -59,7 +75,30 @@ final class TerrainSurfaceClassifier {
         return isTreeLog(state)
                 || isTreeLeaf(state)
                 || isTreeAttachment(state)
-                || isLightweightVegetation(state);
+                || isLightweightVegetation(state)
+                || state.getBlock() instanceof HugeMushroomBlock;
+    }
+
+    /*
+     * A block with a trunk or a leaf above it and no terrain under it hangs
+     * from the tree. Other mods hang cocoons and fruit there, which neither
+     * the vanilla tags nor a list here can name; read as ground, a cocoon
+     * twenty blocks up a jungle tree rejected a site that was flat. The ground
+     * a trunk stands on has terrain under it, so it still counts.
+     */
+    private static boolean hangsFromTree(
+            BlockState above,
+            int y,
+            int minimumBuildHeight,
+            IntFunction<BlockState> stateAtY,
+            Predicate<BlockState> vegetationClassifier) {
+        if (!(isTreeLog(above) || isTreeLeaf(above))
+                || y <= minimumBuildHeight) {
+            return false;
+        }
+        BlockState below = stateAtY.apply(y - 1);
+        return below != null
+                && !isTerrainMaterial(below, vegetationClassifier);
     }
 
     static boolean isTreeLog(BlockState state) {
@@ -89,7 +128,22 @@ final class TerrainSurfaceClassifier {
                 && !isTreeLeaf(state)
                 && !isTreeAttachment(state)
                 && (state.is(BlockTags.REPLACEABLE_BY_TREES)
-                        || state.getBlock() instanceof BushBlock);
+                        || state.getBlock() instanceof BushBlock
+                        || isPlantColumnOrCover(state));
+    }
+
+    /*
+     * Plants that stack into columns, and snow lying on the surface: none of
+     * them is terrain, and the planner never sees them, since it reads the
+     * ground before anything grows on it.
+     */
+    private static boolean isPlantColumnOrCover(BlockState state) {
+        Block block = state.getBlock();
+        return block instanceof BambooStalkBlock
+                || block instanceof BambooSaplingBlock
+                || block instanceof CactusBlock
+                || block instanceof SugarCaneBlock
+                || block instanceof SnowLayerBlock;
     }
 
     static boolean isTreeAttachment(BlockState state) {
