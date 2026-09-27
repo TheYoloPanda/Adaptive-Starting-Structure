@@ -65,9 +65,7 @@ final class FootprintLevelingPlanner {
                 throw UnsuitableGeneratedSiteException
                         .cutFillThresholdExceeded(
                                 "Generated footprint",
-                                x,
-                                z,
-                                column.groundY(),
+                                column,
                                 targetY,
                                 config.maximumCutDepth(),
                                 config.maximumFillDepth());
