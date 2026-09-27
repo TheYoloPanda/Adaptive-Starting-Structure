@@ -119,9 +119,7 @@ final class TerrainBlendPlanner {
                 throw UnsuitableGeneratedSiteException
                         .cutFillThresholdExceeded(
                                 "Generated blend",
-                                column.x(),
-                                column.z(),
-                                column.groundY(),
+                                column,
                                 targetY,
                                 config.maximumCutDepth(),
                                 config.maximumFillDepth());

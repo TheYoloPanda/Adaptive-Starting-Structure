@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
 public final class TerrainColumnSnapshot {
@@ -119,6 +120,17 @@ public final class TerrainColumnSnapshot {
 
     public BlockState surfaceMaterial() {
         return surfaceMaterial;
+    }
+
+    /**
+     * The block resting on the ground. The capture stops at the column's
+     * surface, and everything from the surface up is air.
+     */
+    public BlockState stateAboveGround() {
+        int y = groundY + 1;
+        return y < maximumCapturedYExclusive()
+                ? stateAt(y)
+                : Blocks.AIR.defaultBlockState();
     }
 
     public BlockState fillerMaterial() {

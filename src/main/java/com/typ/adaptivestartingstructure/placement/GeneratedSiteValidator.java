@@ -13,6 +13,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.Fluids;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
 final class GeneratedSiteValidator {
@@ -74,6 +75,8 @@ final class GeneratedSiteValidator {
         int maximumPerimeterError = 0;
         int maximumCutDepth = 0;
         int maximumFillDepth = 0;
+        MeasuredColumn lowest = null;
+        MeasuredColumn highest = null;
         int targetGroundY = plan.candidate().groundSurfaceY();
 
         for (int x = bounds.minimumAffectedX(); ; x++) {
@@ -140,8 +143,14 @@ final class GeneratedSiteValidator {
 
                     if (footprint.contains(key)) {
                         footprintColumns++;
-                        minimumGroundY = Math.min(minimumGroundY, groundY);
-                        maximumGroundY = Math.max(maximumGroundY, groundY);
+                        if (groundY < minimumGroundY) {
+                            minimumGroundY = groundY;
+                            lowest = new MeasuredColumn(x, z, groundY, surfaceHeight);
+                        }
+                        if (groundY > maximumGroundY) {
+                            maximumGroundY = groundY;
+                            highest = new MeasuredColumn(x, z, groundY, surfaceHeight);
+                        }
                         int signedError = groundY - targetGroundY;
                         maximumCutDepth = Math.max(
                                 maximumCutDepth,
@@ -209,9 +218,35 @@ final class GeneratedSiteValidator {
                             + config.maximumPerimeterError()
                             + ", waterFraction="
                             + config.maximumWaterFraction()
-                            + "]");
+                            + "]"
+                            + describeExtremes(world, highest, lowest));
         }
         return validation;
+    }
+
+    private static String describeExtremes(
+            WorldView world,
+            MeasuredColumn highest,
+            MeasuredColumn lowest) {
+        if (highest == null || lowest == null) {
+            return "";
+        }
+        return "; highest " + highest.describe(world)
+                + "; lowest " + lowest.describe(world);
+    }
+
+    private record MeasuredColumn(int x, int z, int groundY, int surfaceHeight) {
+        String describe(WorldView world) {
+            BlockState above = groundY + 1 < world.maximumBuildHeight()
+                    ? world.blockState(x, groundY + 1, z)
+                    : Blocks.AIR.defaultBlockState();
+            return "at [" + x + ", " + z + "]: "
+                    + UnsuitableGeneratedSiteException.describeGround(
+                            groundY,
+                            world.blockState(x, groundY, z),
+                            above,
+                            surfaceHeight - 1);
+        }
     }
 
     private static FluidKind inspectFluidRange(
