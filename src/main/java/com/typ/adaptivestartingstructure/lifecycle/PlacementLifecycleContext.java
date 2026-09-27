@@ -63,6 +63,8 @@ interface PlacementLifecycleContext {
             int remainingAlternatives,
             String reason);
 
+    void logLastCandidateRejected(SiteCandidate rejected, String reason);
+
     void logAwaitingDecision(FallbackDecision decision);
 
     void logCompletion(

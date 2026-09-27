@@ -220,6 +220,9 @@ public final class PlacementLifecycle {
                     throw retryFailure;
                 }
                 if (discardedSiteCandidates.isEmpty()) {
+                    context.logLastCandidateRejected(
+                            rejected,
+                            failure.getMessage());
                     if (context.supportsPlayerDecision()) {
                         FallbackDecision decision;
                         try {
@@ -674,6 +677,21 @@ public final class PlacementLifecycle {
                     replacement.rotation(),
                     replacement.worldSpawn(),
                     remainingAlternatives);
+        }
+
+        @Override
+        public void logLastCandidateRejected(
+                SiteCandidate rejected,
+                String reason) {
+            AdaptiveStartingStructure.LOGGER.warn(
+                    "Generated site for starting structure '{}' at center [{}, {}], origin {}, rotation {} "
+                            + "was unsuitable ({}); no candidate alternatives remain.",
+                    rejected.structureId(),
+                    rejected.centerX(),
+                    rejected.centerZ(),
+                    rejected.placementOrigin(),
+                    rejected.rotation(),
+                    reason);
         }
 
         @Override
