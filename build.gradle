@@ -251,11 +251,13 @@ tasks.named('check').configure {
 }
 
 def releaseJar = tasks.named('jar', Jar).flatMap { it.archiveFile }
+def releaseVersion = mod_version
 def verifyReleaseJar = tasks.register('verifyReleaseJar') {
     group = 'verification'
     description = 'Verifies that the release JAR contains only approved production content.'
     dependsOn(tasks.named('jar'))
     inputs.file(releaseJar)
+    inputs.property('releaseVersion', releaseVersion)
 
     doLast {
         def archive = releaseJar.get().asFile
@@ -303,7 +305,7 @@ def verifyReleaseJar = tasks.register('verifyReleaseJar') {
                     .getText('UTF-8')
             def requiredMetadata = [
                     'modId="adaptive_starting_structure"',
-                    'version="0.1.0"',
+                    "version=\"${releaseVersion}\"".toString(),
                     'authors="TYP"',
                     'side="BOTH"'
             ]
