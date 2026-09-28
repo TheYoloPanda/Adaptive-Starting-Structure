@@ -22,6 +22,12 @@ import net.minecraft.world.level.block.CocoaBlock;
 import net.minecraft.world.level.block.VineBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
+/*
+ * One unit on purpose: finding the trees a placement touches, deciding which
+ * of them may go and what goes with them are steps of a single rule over the
+ * same private indexes of logs, leaves and their owners. Split apart, every
+ * piece would need those indexes exported to do one step of that rule.
+ */
 final class TreeCleanupPlanner {
     private static final int MAX_LEAF_DISTANCE = 7;
     private static final Comparator<BlockPos> POSITION_ORDER =
@@ -60,12 +66,10 @@ final class TreeCleanupPlanner {
                 assignLeaves(
                         inventory.leaves.keySet(),
                         logIndex.ownerByLog);
-        boolean[] hasLeaves = new boolean[logIndex.components.size()];
-        for (LeafOwnership ownership : leafOwnership.values()) {
-            for (int owner : ownership.owners) {
-                hasLeaves[owner] = true;
-            }
-        }
+        List<Set<Integer>> supports = supportingComponents(
+                logIndex,
+                inventory.leaves.keySet());
+        boolean[] grounded = grounded(logIndex, supports);
 
         Map<Long, BlendColumnTarget> targetsByColumn =
                 new HashMap<>(blendTargets.size());
@@ -88,11 +92,7 @@ final class TreeCleanupPlanner {
                 continue;
             }
             int owner = logIndex.ownerByLog.get(log);
-            requireValidTree(
-                    logIndex.components.get(owner),
-                    hasLeaves[owner],
-                    log,
-                    "log");
+            requireGrounded(grounded[owner], log, "log");
             selectedOwners.add(owner);
         }
         for (BlockPos leaf : sorted(inventory.leaves.keySet())) {
@@ -108,17 +108,14 @@ final class TreeCleanupPlanner {
                 throw unresolved(leaf, "contacting foliage has no resolvable trunk");
             }
             for (int owner : ownership.owners) {
-                requireValidTree(
-                        logIndex.components.get(owner),
-                        hasLeaves[owner],
-                        leaf,
-                        "foliage");
+                requireGrounded(grounded[owner], leaf, "foliage");
                 selectedOwners.add(owner);
             }
         }
         if (selectedOwners.isEmpty()) {
             return Result.empty();
         }
+        addRiders(selectedOwners, supports);
 
         Set<BlockPos> selectedLogs = new LinkedHashSet<>();
         for (int owner : selectedOwners) {
@@ -353,16 +350,138 @@ final class TreeCleanupPlanner {
         return target != null && target.modifiesHeight();
     }
 
-    private static void requireValidTree(
-            LogComponent component,
-            boolean hasLeaves,
+    /*
+     * For every log component that does not stand on the ground, the other
+     * components it rests on: those whose log is right under one of its logs,
+     * or whose logs the leaf under it reaches through leaves. World generation
+     * can drop a bush onto the canopy of another tree, where none of its logs
+     * touches the ground.
+     */
+    private static List<Set<Integer>> supportingComponents(
+            LogIndex logIndex,
+            Set<BlockPos> leaves) {
+        List<Set<Integer>> supports =
+                new ArrayList<>(logIndex.components.size());
+        for (int id = 0; id < logIndex.components.size(); id++) {
+            LogComponent component = logIndex.components.get(id);
+            Set<Integer> supporting = new TreeSet<>();
+            if (!component.rooted) {
+                for (BlockPos log : component.logs) {
+                    addSupport(
+                            log.below(),
+                            id,
+                            logIndex.ownerByLog,
+                            leaves,
+                            supporting);
+                }
+            }
+            supports.add(Set.copyOf(supporting));
+        }
+        return List.copyOf(supports);
+    }
+
+    private static void addSupport(
+            BlockPos below,
+            int component,
+            Map<BlockPos, Integer> ownerByLog,
+            Set<BlockPos> leaves,
+            Set<Integer> supporting) {
+        Integer owner = ownerByLog.get(below);
+        if (owner != null) {
+            if (owner != component) {
+                supporting.add(owner);
+            }
+            return;
+        }
+        if (!leaves.contains(below)) {
+            return;
+        }
+        Map<BlockPos, Integer> distances = new HashMap<>();
+        Queue<BlockPos> pending = new ArrayDeque<>();
+        distances.put(below, 1);
+        pending.add(below);
+        while (!pending.isEmpty()) {
+            BlockPos leaf = pending.remove();
+            int distance = distances.get(leaf);
+            for (Direction direction : Direction.values()) {
+                BlockPos neighbor = leaf.relative(direction);
+                Integer neighborOwner = ownerByLog.get(neighbor);
+                if (neighborOwner != null) {
+                    if (neighborOwner != component) {
+                        supporting.add(neighborOwner);
+                    }
+                } else if (distance < MAX_LEAF_DISTANCE
+                        && leaves.contains(neighbor)
+                        && distances.putIfAbsent(
+                                neighbor,
+                                distance + 1) == null) {
+                    pending.add(neighbor);
+                }
+            }
+        }
+    }
+
+    /*
+     * Wood is taken when it stands on the ground or rests on wood that does.
+     * Leaves are not required: stumps and fallen logs have none. What neither
+     * stands nor rests on a tree could be part of something built, so it
+     * rejects the site; wood inside a generated structure's pieces is rejected
+     * later by the collision check whatever this decides.
+     */
+    private static boolean[] grounded(
+            LogIndex logIndex,
+            List<Set<Integer>> supports) {
+        boolean[] grounded = new boolean[logIndex.components.size()];
+        for (int id = 0; id < grounded.length; id++) {
+            grounded[id] = logIndex.components.get(id).rooted;
+        }
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            for (int id = 0; id < grounded.length; id++) {
+                if (!grounded[id]
+                        && supports.get(id).stream()
+                                .anyMatch(support -> grounded[support])) {
+                    grounded[id] = true;
+                    changed = true;
+                }
+            }
+        }
+        return grounded;
+    }
+
+    private static void requireGrounded(
+            boolean grounded,
             BlockPos contact,
             String kind) {
-        if (!component.rooted || !hasLeaves) {
+        if (!grounded) {
             throw unresolved(
                     contact,
                     "contacting " + kind
-                            + " belongs to ambiguous wood or an unrooted tree component");
+                            + " belongs to wood that neither stands on the ground"
+                            + " nor rests on a tree");
+        }
+    }
+
+    /*
+     * A component resting only on trees that are being removed would float
+     * once they are gone, so it goes with them.
+     */
+    private static void addRiders(
+            Set<Integer> selectedOwners,
+            List<Set<Integer>> supports) {
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            for (int id = 0; id < supports.size(); id++) {
+                Set<Integer> supporting = supports.get(id);
+                if (!supporting.isEmpty()
+                        && !selectedOwners.contains(id)
+                        && selectedOwners.containsAll(supporting)) {
+                    selectedOwners.add(id);
+                    changed = true;
+                }
+            }
         }
     }
 
