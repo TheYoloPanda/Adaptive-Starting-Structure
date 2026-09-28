@@ -33,7 +33,8 @@ public record ConfigSnapshot(
         Set<ResourceLocation> excludedBiomes,
         Set<ResourceLocation> excludedBiomeTags,
         BlockedStateRecovery blockedStateRecovery,
-        boolean placePlayerAtSpawnMarker) {
+        boolean placePlayerAtSpawnMarker,
+        Set<ResourceLocation> ignoredStructureCollisions) {
 
     private static final Set<ResourceLocation> BASE_PREFERRED_BIOMES = resourceLocations(
             "minecraft:plains",
@@ -75,7 +76,10 @@ public record ConfigSnapshot(
             "minecraft:frozen_peaks",
             "minecraft:stony_peaks");
 
-    /** A snapshot that refuses to start a world stuck in a blocked state. */
+    /**
+     * A snapshot that refuses to start a world stuck in a blocked state and
+     * trusts the declared bounds of every generated structure.
+     */
     public ConfigSnapshot(
             boolean enabled,
             int preferredSearchRadius,
@@ -123,7 +127,8 @@ public record ConfigSnapshot(
                 excludedBiomes,
                 excludedBiomeTags,
                 BlockedStateRecovery.BLOCK,
-                ModConfig.DEFAULT_PLACE_PLAYER_AT_SPAWN_MARKER);
+                ModConfig.DEFAULT_PLACE_PLAYER_AT_SPAWN_MARKER,
+                Set.of());
     }
 
     public ConfigSnapshot {
@@ -192,6 +197,9 @@ public record ConfigSnapshot(
         preferredBiomes = immutableSet("preferredBiomes", preferredBiomes);
         excludedBiomes = immutableSet("excludedBiomes", excludedBiomes);
         excludedBiomeTags = immutableSet("excludedBiomeTags", excludedBiomeTags);
+        ignoredStructureCollisions = immutableSet(
+                "ignoredStructureCollisions",
+                ignoredStructureCollisions);
 
         LinkedHashSet<ResourceLocation> conflictingBiomes = new LinkedHashSet<>(preferredBiomes);
         conflictingBiomes.retainAll(excludedBiomes);
@@ -275,7 +283,8 @@ public record ConfigSnapshot(
             List<? extends String> removedPreferredBiomes,
             List<? extends String> removedExcludedBiomes,
             String blockedStateRecovery,
-            boolean placePlayerAtSpawnMarker) {
+            boolean placePlayerAtSpawnMarker,
+            List<? extends String> ignoredStructureCollisions) {
         Set<ResourceLocation> preferredBiomes = withoutRemoved(
                 mergeAdditional(
                         "additionalPreferredBiomes",
@@ -323,7 +332,10 @@ public record ConfigSnapshot(
                 excludedBiomes,
                 allExcludedTags,
                 BlockedStateRecovery.fromConfigValue(blockedStateRecovery),
-                placePlayerAtSpawnMarker);
+                placePlayerAtSpawnMarker,
+                parseResourceLocations(
+                        "ignoredStructureCollisions",
+                        ignoredStructureCollisions));
     }
 
     static boolean isKnownBlockedStateRecovery(Object value) {

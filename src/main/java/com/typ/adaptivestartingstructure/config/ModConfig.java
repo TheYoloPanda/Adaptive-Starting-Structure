@@ -48,6 +48,8 @@ public final class ModConfig {
             "minecraft:is_river",
             "minecraft:is_beach",
             "minecraft:is_mountain");
+    static final List<String> DEFAULT_IGNORED_STRUCTURE_COLLISIONS = List.of(
+            "ae2:meteorite");
     static final boolean DEFAULT_PLACE_PLAYER_AT_SPAWN_MARKER = true;
     static final String DEFAULT_BLOCKED_STATE_RECOVERY =
             BlockedStateRecovery.BLOCK.configValue();
@@ -134,6 +136,7 @@ public final class ModConfig {
         private final ModConfigSpec.ConfigValue<List<? extends String>> additionalExcludedBiomes;
         private final ModConfigSpec.ConfigValue<List<? extends String>> removedPreferredBiomes;
         private final ModConfigSpec.ConfigValue<List<? extends String>> removedExcludedBiomes;
+        private final ModConfigSpec.ConfigValue<List<? extends String>> ignoredStructureCollisions;
         private final ModConfigSpec.ConfigValue<String> blockedStateRecovery;
         private final ModConfigSpec.BooleanValue placePlayerAtSpawnMarker;
 
@@ -299,6 +302,20 @@ public final class ModConfig {
                             List.of(),
                             () -> "minecraft:meadow",
                             ConfigSnapshot::isResourceLocation);
+            ignoredStructureCollisions = builder
+                    .comment(
+                            "Generated structure IDs whose declared bounds are not trusted when "
+                                    + "checking whether the starting structure would collide with them.",
+                            "Applied Energistics 2 declares every meteorite as a flat area of 144x144 "
+                                    + "blocks around a meteorite a few blocks wide, which rejects sites "
+                                    + "dozens of blocks away from it.",
+                            "A listed structure never counts as a collision; the ground under the site "
+                                    + "is still checked like any other terrain.")
+                    .defineListAllowEmpty(
+                            "ignoredStructureCollisions",
+                            DEFAULT_IGNORED_STRUCTURE_COLLISIONS,
+                            () -> "ae2:meteorite",
+                            ConfigSnapshot::isResourceLocation);
             blockedStateRecovery = builder
                     .comment(
                             "What to do with a world whose starting-structure state blocks startup, "
@@ -351,7 +368,8 @@ public final class ModConfig {
                     read(removedPreferredBiomes, defaults),
                     read(removedExcludedBiomes, defaults),
                     read(blockedStateRecovery, defaults),
-                    read(placePlayerAtSpawnMarker, defaults));
+                    read(placePlayerAtSpawnMarker, defaults),
+                    read(ignoredStructureCollisions, defaults));
         }
 
         private static <T> T read(ModConfigSpec.ConfigValue<T> value, boolean defaults) {

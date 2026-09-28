@@ -23,10 +23,16 @@ public final class GeneratedStructureCollisionValidator {
     private GeneratedStructureCollisionValidator() {
     }
 
-    public static void validate(
+    /**
+     * Rejects the site when a generated structure is in its way. A structure in
+     * {@code ignoredStructures} never rejects it; the collisions let through
+     * for that reason are returned, one per structure, for the log.
+     */
+    public static List<String> validate(
             PreparedPlacement prepared,
             PreparedTerrainLeveling leveling,
-            PreparedTerrainBlending blending) {
+            PreparedTerrainBlending blending,
+            Set<ResourceLocation> ignoredStructures) {
         Objects.requireNonNull(prepared, "prepared");
         Objects.requireNonNull(leveling, "leveling");
         Objects.requireNonNull(blending, "blending");
@@ -42,22 +48,25 @@ public final class GeneratedStructureCollisionValidator {
 
         Map<ChunkPos, List<BlockPos>> writesByChunk =
                 plannedWritePositions(leveling, blending);
-        validate(
+        return validate(
                 new ServerWorldView(level),
                 prepared.bounds().structureBounds(),
                 writesByChunk,
-                Set.copyOf(prepared.chunks()));
+                Set.copyOf(prepared.chunks()),
+                ignoredStructures);
     }
 
-    static void validate(
+    static List<String> validate(
             WorldView world,
             StructureBounds templateBounds,
             Map<ChunkPos, List<BlockPos>> writesByChunk,
-            Set<ChunkPos> preparedChunks) {
+            Set<ChunkPos> preparedChunks,
+            Set<ResourceLocation> ignoredStructures) {
         Objects.requireNonNull(world, "world");
         Objects.requireNonNull(templateBounds, "templateBounds");
         Objects.requireNonNull(writesByChunk, "writesByChunk");
         Objects.requireNonNull(preparedChunks, "preparedChunks");
+        Objects.requireNonNull(ignoredStructures, "ignoredStructures");
 
         CollisionBox templateBox = CollisionBox.from(templateBounds);
         LinkedHashSet<ChunkPos> relevantChunks =
@@ -71,6 +80,7 @@ public final class GeneratedStructureCollisionValidator {
         }
 
         Set<StructureKey> templateChecks = new HashSet<>();
+        Map<StructureKey, String> ignoredCollisions = new LinkedHashMap<>();
         for (ChunkPos chunk : relevantChunks) {
             Set<StructureKey> checkedInChunk = new HashSet<>();
             List<BlockPos> chunkWrites =
@@ -83,25 +93,40 @@ public final class GeneratedStructureCollisionValidator {
                 if (!checkedInChunk.add(key)) {
                     continue;
                 }
-                if (templateChecks.add(key)
-                        && structure.startBounds()
-                                .intersects(templateBox)) {
-                    throw collision(
-                            structure,
-                            "intersects the starting-template bounds");
+                String detail = collisionDetail(
+                        structure,
+                        templateChecks.add(key),
+                        templateBox,
+                        chunkWrites);
+                if (detail == null) {
+                    continue;
                 }
-                for (BlockPos write : chunkWrites) {
-                    if (insideAnyPiece(
-                            write,
-                            structure.pieceBounds())) {
-                        throw collision(
-                                structure,
-                                "contains a planned terrain write at "
-                                        + coordinate(write));
-                    }
+                String collision = describe(structure, detail);
+                if (!ignoredStructures.contains(structure.id())) {
+                    throw new UnsuitableGeneratedSiteException(collision);
                 }
+                ignoredCollisions.putIfAbsent(key, collision);
             }
         }
+        return List.copyOf(ignoredCollisions.values());
+    }
+
+    private static String collisionDetail(
+            GeneratedStructure structure,
+            boolean checkTemplateBounds,
+            CollisionBox templateBox,
+            List<BlockPos> chunkWrites) {
+        if (checkTemplateBounds
+                && structure.startBounds().intersects(templateBox)) {
+            return "intersects the starting-template bounds";
+        }
+        for (BlockPos write : chunkWrites) {
+            if (insideAnyPiece(write, structure.pieceBounds())) {
+                return "contains a planned terrain write at "
+                        + coordinate(write);
+            }
+        }
+        return null;
     }
 
     private static Map<ChunkPos, List<BlockPos>> plannedWritePositions(
@@ -194,18 +219,17 @@ public final class GeneratedStructureCollisionValidator {
         return false;
     }
 
-    private static UnsuitableGeneratedSiteException collision(
+    private static String describe(
             GeneratedStructure structure,
             String detail) {
-        return new UnsuitableGeneratedSiteException(
-                "Generated structure "
-                        + structure.id()
-                        + " at start chunk ["
-                        + structure.startChunk().x
-                        + ", "
-                        + structure.startChunk().z
-                        + "] "
-                        + detail);
+        return "Generated structure "
+                + structure.id()
+                + " at start chunk ["
+                + structure.startChunk().x
+                + ", "
+                + structure.startChunk().z
+                + "] "
+                + detail;
     }
 
     private static String coordinate(BlockPos position) {

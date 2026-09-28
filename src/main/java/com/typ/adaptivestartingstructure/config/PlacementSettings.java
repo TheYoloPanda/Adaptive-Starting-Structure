@@ -83,6 +83,7 @@ public record PlacementSettings(
                 config.excludedBiomes(),
                 config.excludedBiomeTags(),
                 config.blockedStateRecovery(),
-                config.placePlayerAtSpawnMarker());
+                config.placePlayerAtSpawnMarker(),
+                config.ignoredStructureCollisions());
     }
 }

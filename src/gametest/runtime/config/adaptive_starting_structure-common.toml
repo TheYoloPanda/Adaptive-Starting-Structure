@@ -83,6 +83,10 @@ removedPreferredBiomes = []
 #Biome IDs to drop from the built-in excluded list.
 #Unknown IDs are ignored with a warning.
 removedExcludedBiomes = []
+#Generated structure IDs whose declared bounds are not trusted when checking whether the starting structure would collide with them.
+#Applied Energistics 2 declares every meteorite as a flat area of 144x144 blocks around a meteorite a few blocks wide, which rejects sites dozens of blocks away from it.
+#A listed structure never counts as a collision; the ground under the site is still checked like any other terrain.
+ignoredStructureCollisions = ["ae2:meteorite"]
 #What to do with a world whose starting-structure state blocks startup, which happens when the game died during placement.
 #'block' refuses to start so the half-modified world is not accepted silently.
 #'skip' gives up on the starting structure and loads the world as it is, which may leave partial terrain or structure blocks behind.
