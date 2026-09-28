@@ -187,6 +187,18 @@ would enter one of that structure's actual piece bounds. No extra proximity
 buffer is added. Arbitrary player builds and world-generation features that
 are not registered structures cannot be detected by this check.
 
+Some structures declare bounds far larger than what they place: Applied
+Energistics 2 declares each meteorite as a flat area of 144 × 144 blocks around
+a meteorite a few blocks wide, which would reject sites dozens of blocks away
+from it. A structure listed here never counts as a collision:
+
+```toml
+ignoredStructureCollisions = ["ae2:meteorite"]
+```
+
+The ground under the site is still judged like any other terrain, so a crater
+under the footprint is treated as the hole it is.
+
 If every planned candidate is rejected, singleplayer shows a blocking choice:
 `Return to World List` preserves the world in its pending state, while
 `Continue Anyway` switches permanently to Minecraft's normal spawn without
@@ -255,7 +267,8 @@ stored with the plan and reused when the structure is built, so a change made
 in between does not invalidate a finished plan. The server log reports when
 this happens. Change them before creating a world for them to take effect.
 Settings that play no part in choosing a site, such as
-`placeTemplateEntities`, keep following the live configuration.
+`placeTemplateEntities` and `ignoredStructureCollisions`, keep following the
+live configuration.
 
 ### Recovering a world that refuses to start
 

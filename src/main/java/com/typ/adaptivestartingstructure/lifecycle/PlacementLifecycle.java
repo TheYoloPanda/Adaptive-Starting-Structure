@@ -526,10 +526,16 @@ public final class PlacementLifecycle {
                                 prepared,
                                 terrain,
                                 config);
-                GeneratedStructureCollisionValidator.validate(
-                        prepared,
-                        terrain,
-                        blending);
+                for (String ignoredCollision
+                        : GeneratedStructureCollisionValidator.validate(
+                                prepared,
+                                terrain,
+                                blending,
+                                config.ignoredStructureCollisions())) {
+                    AdaptiveStartingStructure.LOGGER.info(
+                            "{}; ignored because ignoredStructureCollisions lists it",
+                            ignoredCollision);
+                }
                 if (blending.plan().selectedTreeCount() > 0) {
                     AdaptiveStartingStructure.LOGGER.info(
                             "Prepared bounded tree cleanup: {} trees, {} tree/accessory blocks selected "
