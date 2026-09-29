@@ -95,6 +95,7 @@ final class TreeCleanupPlanner {
             requireGrounded(grounded[owner], log, "log");
             selectedOwners.add(owner);
         }
+        Set<BlockPos> trunklessContacts = new LinkedHashSet<>();
         for (BlockPos leaf : sorted(inventory.leaves.keySet())) {
             if (!interferes(
                     leaf,
@@ -105,14 +106,19 @@ final class TreeCleanupPlanner {
             }
             LeafOwnership ownership = leafOwnership.get(leaf);
             if (ownership == null || ownership.owners.isEmpty()) {
-                throw unresolved(leaf, "contacting foliage has no resolvable trunk");
+                trunklessContacts.add(leaf);
+                continue;
             }
             for (int owner : ownership.owners) {
                 requireGrounded(grounded[owner], leaf, "foliage");
                 selectedOwners.add(owner);
             }
         }
-        if (selectedOwners.isEmpty()) {
+        Set<BlockPos> trunklessFoliage = trunklessFoliage(
+                trunklessContacts,
+                inventory.leaves.keySet(),
+                leafOwnership);
+        if (selectedOwners.isEmpty() && trunklessFoliage.isEmpty()) {
             return Result.empty();
         }
         addRiders(selectedOwners, supports);
@@ -121,7 +127,7 @@ final class TreeCleanupPlanner {
         for (int owner : selectedOwners) {
             selectedLogs.addAll(logIndex.components.get(owner).logs);
         }
-        Set<BlockPos> selectedLeaves = new LinkedHashSet<>();
+        Set<BlockPos> selectedLeaves = new LinkedHashSet<>(trunklessFoliage);
         for (Map.Entry<BlockPos, LeafOwnership> entry
                 : leafOwnership.entrySet()) {
             if (selectedOwners.containsAll(entry.getValue().owners)) {
@@ -461,6 +467,31 @@ final class TreeCleanupPlanner {
                             + " belongs to wood that neither stands on the ground"
                             + " nor rests on a tree");
         }
+    }
+
+    /*
+     * Leaves that no log reaches within the leaf distance belong to no tree,
+     * so taking them cannot cut one in half. They go as the whole cluster of
+     * such leaves around the contact, so that none is left floating.
+     */
+    private static Set<BlockPos> trunklessFoliage(
+            Set<BlockPos> contacts,
+            Set<BlockPos> leaves,
+            Map<BlockPos, LeafOwnership> leafOwnership) {
+        Set<BlockPos> cluster = new LinkedHashSet<>(contacts);
+        Queue<BlockPos> pending = new ArrayDeque<>(contacts);
+        while (!pending.isEmpty()) {
+            BlockPos leaf = pending.remove();
+            for (Direction direction : Direction.values()) {
+                BlockPos neighbor = leaf.relative(direction);
+                if (leaves.contains(neighbor)
+                        && !leafOwnership.containsKey(neighbor)
+                        && cluster.add(neighbor)) {
+                    pending.add(neighbor);
+                }
+            }
+        }
+        return cluster;
     }
 
     /*
