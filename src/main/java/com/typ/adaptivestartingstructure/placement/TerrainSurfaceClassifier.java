@@ -1,5 +1,6 @@
 package com.typ.adaptivestartingstructure.placement;
 
+import java.util.Set;
 import java.util.function.IntFunction;
 import java.util.function.Predicate;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -20,6 +21,18 @@ import net.minecraft.world.level.block.VineBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 final class TerrainSurfaceClassifier {
+    /* The vanilla members of the dirt tag, for where tags are not bound. */
+    private static final Set<String> VANILLA_DIRT = Set.of(
+            "dirt",
+            "coarse_dirt",
+            "rooted_dirt",
+            "grass_block",
+            "podzol",
+            "mycelium",
+            "moss_block",
+            "mud",
+            "muddy_mangrove_roots");
+
     private TerrainSurfaceClassifier() {
     }
 
@@ -50,6 +63,7 @@ final class TerrainSurfaceClassifier {
             }
             if (isTerrainMaterial(state, vegetationClassifier)
                     && !hangsFromTree(
+                            state,
                             above,
                             y,
                             minimumBuildHeight,
@@ -83,22 +97,34 @@ final class TerrainSurfaceClassifier {
      * A block with a trunk or a leaf above it and no terrain under it hangs
      * from the tree. Other mods hang cocoons and fruit there, which neither
      * the vanilla tags nor a list here can name; read as ground, a cocoon
-     * twenty blocks up a jungle tree rejected a site that was flat. The ground
-     * a trunk stands on has terrain under it, so it still counts.
+     * twenty blocks up a jungle tree rejected a site that was flat. Dirt never
+     * hangs: tree features turn the ground under a trunk into dirt, and a
+     * trunk on a one-block roof over a cave still stands on that roof.
      */
     private static boolean hangsFromTree(
+            BlockState state,
             BlockState above,
             int y,
             int minimumBuildHeight,
             IntFunction<BlockState> stateAtY,
             Predicate<BlockState> vegetationClassifier) {
         if (!(isTreeLog(above) || isTreeLeaf(above))
-                || y <= minimumBuildHeight) {
+                || y <= minimumBuildHeight
+                || isDirt(state)) {
             return false;
         }
         BlockState below = stateAtY.apply(y - 1);
         return below != null
                 && !isTerrainMaterial(below, vegetationClassifier);
+    }
+
+    private static boolean isDirt(BlockState state) {
+        if (state.is(BlockTags.DIRT)) {
+            return true;
+        }
+        var id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
+        return id.getNamespace().equals("minecraft")
+                && VANILLA_DIRT.contains(id.getPath());
     }
 
     static boolean isTreeLog(BlockState state) {
