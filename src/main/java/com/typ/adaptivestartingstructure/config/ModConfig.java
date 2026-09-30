@@ -231,7 +231,9 @@ public final class ModConfig {
                             0,
                             MAX_BLOCK_DISTANCE);
             maximumPerimeterError = builder
-                    .comment("Maximum elevation error allowed at the blended perimeter.")
+                    .comment(
+                            "Maximum elevation error allowed at the footprint's edge when a site is chosen. "
+                                    + "Once the terrain is generated, the cut and fill limits bound the edge instead.")
                     .defineInRange(
                             "maximumPerimeterError",
                             DEFAULT_MAXIMUM_PERIMETER_ERROR,

@@ -72,7 +72,6 @@ final class GeneratedSiteValidator {
         int footprintColumns = 0;
         int minimumGroundY = Integer.MAX_VALUE;
         int maximumGroundY = Integer.MIN_VALUE;
-        int maximumPerimeterError = 0;
         int maximumCutDepth = 0;
         int maximumFillDepth = 0;
         MeasuredColumn lowest = null;
@@ -158,11 +157,6 @@ final class GeneratedSiteValidator {
                         maximumFillDepth = Math.max(
                                 maximumFillDepth,
                                 Math.max(0, -signedError));
-                        if (isFootprintPerimeter(footprint, x, z)) {
-                            maximumPerimeterError = Math.max(
-                                    maximumPerimeterError,
-                                    Math.abs(signedError));
-                        }
                     }
                 }
                 if (z == bounds.maximumAffectedZ()) {
@@ -185,15 +179,18 @@ final class GeneratedSiteValidator {
                 waterColumns,
                 minimumGroundY,
                 maximumGroundY,
-                maximumPerimeterError,
                 maximumCutDepth,
                 maximumFillDepth);
+        /*
+         * maximumPerimeterError is left to the planner, where it picks sites
+         * whose edge the blend meets easily. Here the question is only whether
+         * the site can still be built, and the cut and fill limits already
+         * bound every footprint column, the edge included.
+         */
         if ((long) maximumGroundY - minimumGroundY
                         > config.maximumElevationRange()
                 || maximumCutDepth > config.maximumCutDepth()
                 || maximumFillDepth > config.maximumFillDepth()
-                || maximumPerimeterError
-                        > config.maximumPerimeterError()
                 || validation.waterFraction()
                         > config.maximumWaterFraction()) {
             throw new UnsuitableGeneratedSiteException(
@@ -204,8 +201,6 @@ final class GeneratedSiteValidator {
                             + maximumCutDepth
                             + ", maximumFillDepth="
                             + maximumFillDepth
-                            + ", maximumPerimeterError="
-                            + maximumPerimeterError
                             + ", waterFraction="
                             + validation.waterFraction()
                             + "], configured[elevationRange="
@@ -214,8 +209,6 @@ final class GeneratedSiteValidator {
                             + config.maximumCutDepth()
                             + ", maximumFillDepth="
                             + config.maximumFillDepth()
-                            + ", maximumPerimeterError="
-                            + config.maximumPerimeterError()
                             + ", waterFraction="
                             + config.maximumWaterFraction()
                             + "]"
@@ -289,16 +282,6 @@ final class GeneratedSiteValidator {
         return first == FluidKind.WATER || second == FluidKind.WATER
                 ? FluidKind.WATER
                 : FluidKind.NONE;
-    }
-
-    private static boolean isFootprintPerimeter(
-            Set<Long> footprint,
-            int x,
-            int z) {
-        return !footprint.contains(pack(x - 1, z))
-                || !footprint.contains(pack(x + 1, z))
-                || !footprint.contains(pack(x, z - 1))
-                || !footprint.contains(pack(x, z + 1));
     }
 
     private static long pack(int x, int z) {

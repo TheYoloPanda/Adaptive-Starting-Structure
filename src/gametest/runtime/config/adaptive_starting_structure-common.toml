@@ -54,7 +54,7 @@ maximumFillDepth = 8
 # Default: 12
 # Range: 0 ~ 30000000
 maximumElevationRange = 12
-#Maximum elevation error allowed at the blended perimeter.
+#Maximum elevation error allowed at the footprint's edge when a site is chosen. Once the terrain is generated, the cut and fill limits bound the edge instead.
 # Default: 4
 # Range: 0 ~ 30000000
 maximumPerimeterError = 4
