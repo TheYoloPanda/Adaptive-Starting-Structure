@@ -54,7 +54,17 @@ public final class ClientFallbackDecisionHandler {
                                     "screen.adaptive_starting_structure.fallback.local_only_error")));
             return;
         }
+        if (minecraft.player == null) {
+            leaveToWorldList(minecraft);
+            return;
+        }
+        minecraft.setScreen(new LeavingWorldScreen(
+                minecraft.getSingleplayerServer(),
+                minecraft.player.getUUID(),
+                () -> leaveToWorldList(minecraft)));
+    }
 
+    private static void leaveToWorldList(Minecraft minecraft) {
         SelectWorldScreen worldList =
                 new SelectWorldScreen(new TitleScreen());
 
