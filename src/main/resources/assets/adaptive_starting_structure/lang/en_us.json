@@ -53,6 +53,8 @@
   "screen.adaptive_starting_structure.fallback.return_to_world_list": "Return to World List",
   "screen.adaptive_starting_structure.fallback.continue": "Continue Anyway",
   "screen.adaptive_starting_structure.fallback.returning": "Returning to world list\u2026",
+  "screen.adaptive_starting_structure.fallback.leaving": "Letting world generation finish before leaving\u2026",
+  "screen.adaptive_starting_structure.fallback.leaving_chunks": "%s chunks still generating",
   "screen.adaptive_starting_structure.fallback.continue_confirm.title": "Continue Without the Structure?",
   "screen.adaptive_starting_structure.fallback.continue_confirm.message": "The world will use Minecraft's normal spawn and the starting structure will never be generated here. Not intended: this may affect the modpack's intended progression.",
   "screen.adaptive_starting_structure.fallback.applying": "Applying choice\u2026",
