@@ -179,6 +179,9 @@ traversal never loads chunks dynamically.
 
 Generated terrain whose exact footprint or blend would exceed the configured
 cut/fill limits uses the same site-level retry before any world writes.
+`maximumPerimeterError` only takes part in choosing the site: once the terrain
+is generated, the edge of the footprint is held to the cut and fill limits like
+the rest of it, and the blend absorbs the step.
 
 The same preflight rejects a site when the complete template volume would
 intersect a generated vanilla, datapack, or modded structure registered with

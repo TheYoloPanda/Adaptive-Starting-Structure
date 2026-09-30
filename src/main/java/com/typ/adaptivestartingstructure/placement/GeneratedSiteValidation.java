@@ -6,7 +6,6 @@ public record GeneratedSiteValidation(
         long waterColumns,
         int minimumGroundY,
         int maximumGroundY,
-        int maximumPerimeterError,
         int maximumCutDepth,
         int maximumFillDepth) {
 
@@ -19,7 +18,6 @@ public record GeneratedSiteValidation(
                     "Generated-site column counts are invalid");
         }
         if (maximumGroundY < minimumGroundY
-                || maximumPerimeterError < 0
                 || maximumCutDepth < 0
                 || maximumFillDepth < 0) {
             throw new IllegalArgumentException(
