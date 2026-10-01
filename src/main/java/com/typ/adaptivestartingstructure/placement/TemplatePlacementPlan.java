@@ -22,6 +22,7 @@ public final class TemplatePlacementPlan {
     private final List<TemplateBlockEntityData> blockEntities;
     private final Set<BlockPos> finalUpdatePositions;
     private final Set<BlockPos> fluidUpdatePositions;
+    private final TemplateSiteAdaptation.Summary siteAdaptation;
 
     TemplatePlacementPlan(
             int paletteIndex,
@@ -32,7 +33,8 @@ public final class TemplatePlacementPlan {
             List<TemplateBlockEntityData> blockEntities,
             Set<BlockPos> finalUpdatePositions,
             Set<BlockPos> fluidUpdatePositions,
-            PlacementBounds bounds) {
+            PlacementBounds bounds,
+            TemplateSiteAdaptation.Summary siteAdaptation) {
         if (paletteCount <= 0
                 || paletteIndex < 0
                 || paletteIndex >= paletteCount
@@ -45,6 +47,8 @@ public final class TemplatePlacementPlan {
         this.paletteCount = paletteCount;
         this.templateBlocks = templateBlocks;
         this.explicitAir = explicitAir;
+        this.siteAdaptation =
+                Objects.requireNonNull(siteAdaptation, "siteAdaptation");
         this.blockEntities = List.copyOf(blockEntities);
         this.finalUpdatePositions =
                 immutablePositions(finalUpdatePositions);
@@ -137,6 +141,10 @@ public final class TemplatePlacementPlan {
 
     public Set<BlockPos> fluidUpdatePositions() {
         return fluidUpdatePositions;
+    }
+
+    public String siteAdaptation() {
+        return siteAdaptation.describe();
     }
 
     public int totalWrites() {

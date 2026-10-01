@@ -85,6 +85,7 @@ public record PlacementSettings(
                 config.blockedStateRecovery(),
                 config.placePlayerAtSpawnMarker(),
                 config.ignoredStructureCollisions(),
-                config.blendDepthAllowance());
+                config.blendDepthAllowance(),
+                config.adaptTemplateToSite());
     }
 }

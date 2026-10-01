@@ -1,5 +1,6 @@
 package com.typ.adaptivestartingstructure.placement;
 
+import com.typ.adaptivestartingstructure.config.ConfigSnapshot;
 import com.typ.adaptivestartingstructure.persistence.StartingStructureSavedData;
 import java.util.Objects;
 import net.minecraft.server.level.ServerLevel;
@@ -10,9 +11,11 @@ public final class TemplatePlacement {
 
     public static TemplatePlacementResult place(
             PreparedPlacement prepared,
-            TerrainBlendingResult terrain) {
+            TerrainBlendingResult terrain,
+            ConfigSnapshot config) {
         Objects.requireNonNull(prepared, "prepared");
         Objects.requireNonNull(terrain, "terrain");
+        Objects.requireNonNull(config, "config");
         ServerLevel level = prepared.level();
         if (!level.getServer().isSameThread()) {
             throw new PlacementPreparationException(
@@ -37,7 +40,14 @@ public final class TemplatePlacement {
                         prepared.savedData().plan(),
                         prepared.definition(),
                         prepared.structure(),
-                        prepared.bounds());
+                        prepared.bounds(),
+                        config.adaptTemplateToSite()
+                                ? new TemplateSiteAdaptation.Site(
+                                        TemplateSiteAdaptation.materials(
+                                                terrain.leveling().snapshot(),
+                                                prepared.bounds()),
+                                        SnowCoverPlanner.climateOf(level))
+                                : TemplateSiteAdaptation.Site.AS_AUTHORED);
         int applied =
                 TemplatePlacementApplier.apply(level, plan);
         return new TemplatePlacementResult(

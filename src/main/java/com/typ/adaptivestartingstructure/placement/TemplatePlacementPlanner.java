@@ -84,7 +84,8 @@ final class TemplatePlacementPlanner {
             StartingStructurePlan savedPlan,
             StructureDefinition definition,
             RotatedStructureView structure,
-            PlacementBounds bounds) {
+            PlacementBounds bounds,
+            TemplateSiteAdaptation.Site site) {
         validateBlockEntities(
                 savedPlan,
                 definition,
@@ -161,6 +162,14 @@ final class TemplatePlacementPlanner {
                 offsetExact(
                         origin,
                         structure.markers().groundLevel()));
+        TemplateSiteAdaptation.Summary siteAdaptation =
+                TemplateSiteAdaptation.adapt(
+                        writes,
+                        world,
+                        structure,
+                        origin,
+                        bounds.structureBounds(),
+                        site);
         for (TemplateBlockWrite write : writes.values()) {
             finalUpdates.add(write.position());
         }
@@ -193,7 +202,8 @@ final class TemplatePlacementPlanner {
                 blockEntities,
                 orderedUpdates,
                 orderedFluidUpdates,
-                bounds);
+                bounds,
+                siteAdaptation);
     }
 
     private static TemplateBlockEntityData prepareBlockEntity(

@@ -68,6 +68,8 @@ maximumPerimeterError = 4
 maximumWaterFraction = 0.05
 #Whether supported standalone entities stored in the structure template are placed. Unsupported entity entries are warned and skipped; players, passengers, invalid structural coordinates, and safety-limit violations reject placement.
 placeTemplateEntities = true
+#Whether the template's own grass, and the dirt right under it, take the most common surface and filler of the site, such as sand in a desert, and whether its open tops get snow in a cold biome. When false the template is placed as authored.
+adaptTemplateToSite = true
 #Whether every column in the vanilla spawnRadius area must be safe. When false, only the exact spawn marker is validated.
 requireSafeSpawnArea = false
 #Whether non-preferred land biomes may be accepted with lower priority.
