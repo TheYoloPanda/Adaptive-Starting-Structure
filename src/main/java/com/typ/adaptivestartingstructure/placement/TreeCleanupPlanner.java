@@ -20,6 +20,7 @@ import net.minecraft.world.level.block.BeehiveBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CocoaBlock;
 import net.minecraft.world.level.block.HugeMushroomBlock;
+import net.minecraft.world.level.block.SnowLayerBlock;
 import net.minecraft.world.level.block.VineBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -191,6 +192,8 @@ final class TreeCleanupPlanner {
         Set<BlockPos> vines = new LinkedHashSet<>();
         Set<BlockPos> cocoa = new LinkedHashSet<>();
         Set<BlockPos> beeNests = new LinkedHashSet<>();
+        Set<BlockPos> snow = new LinkedHashSet<>();
+        Set<BlockPos> hanging = new LinkedHashSet<>();
         for (TerrainColumnSnapshot column : snapshot.columns()) {
             for (int y = column.groundY() + 1;
                     y < column.maximumCapturedYExclusive();
@@ -211,6 +214,14 @@ final class TreeCleanupPlanner {
                     cocoa.add(position);
                 } else if (state.getBlock() instanceof BeehiveBlock) {
                     beeNests.add(position);
+                } else if (state.getBlock() instanceof SnowLayerBlock) {
+                    snow.add(position);
+                } else if (y + 1 < column.maximumCapturedYExclusive()
+                        && TerrainSurfaceClassifier.hangsFromTree(
+                                state,
+                                column.stateAt(y + 1),
+                                column.stateAt(y - 1))) {
+                    hanging.add(position);
                 } else {
                     continue;
                 }
@@ -223,7 +234,9 @@ final class TreeCleanupPlanner {
                 leaves,
                 vines,
                 cocoa,
-                beeNests);
+                beeNests,
+                snow,
+                hanging);
     }
 
     private static LogIndex indexLogs(
@@ -602,8 +615,37 @@ final class TreeCleanupPlanner {
                 selected.addAll(component);
             }
         }
+        selectCarried(
+                inventory.snow,
+                selectedTree,
+                Direction.DOWN,
+                selected);
+        selectCarried(
+                inventory.hanging,
+                selectedTree,
+                Direction.UP,
+                selected);
         requireComplete(bounds, selected, "attachments");
         return selected;
+    }
+
+    /*
+     * Worldgen lays snow on every canopy in a cold biome, and other mods hang
+     * cocoons and fruit under trees. Each goes with the tree part it lies on
+     * or hangs from, or it would float once that part is gone, and stays with
+     * a tree that is kept. Snow on the ground is never carried: the block
+     * under it is not part of a tree.
+     */
+    private static void selectCarried(
+            Set<BlockPos> candidates,
+            Set<BlockPos> selectedTree,
+            Direction carrier,
+            Set<BlockPos> selected) {
+        for (BlockPos position : sorted(candidates)) {
+            if (selectedTree.contains(position.relative(carrier))) {
+                selected.add(position);
+            }
+        }
     }
 
     private static void selectDirectAccessories(
@@ -714,7 +756,9 @@ final class TreeCleanupPlanner {
             Map<BlockPos, BlockState> leaves,
             Set<BlockPos> vines,
             Set<BlockPos> cocoa,
-            Set<BlockPos> beeNests) {
+            Set<BlockPos> beeNests,
+            Set<BlockPos> snow,
+            Set<BlockPos> hanging) {
     }
 
     private record LogIndex(
