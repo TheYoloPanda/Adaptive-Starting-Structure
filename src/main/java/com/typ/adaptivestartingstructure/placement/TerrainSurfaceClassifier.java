@@ -3,6 +3,7 @@ package com.typ.adaptivestartingstructure.placement;
 import java.util.Set;
 import java.util.function.IntFunction;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.block.BambooSaplingBlock;
@@ -151,14 +152,38 @@ final class TerrainSurfaceClassifier {
             int minimumBuildHeight,
             IntFunction<BlockState> stateAtY,
             Predicate<BlockState> vegetationClassifier) {
+        return y > minimumBuildHeight
+                && hangsBetween(
+                        state,
+                        above,
+                        () -> stateAtY.apply(y - 1),
+                        vegetationClassifier);
+    }
+
+    static boolean hangsFromTree(
+            BlockState state,
+            BlockState above,
+            BlockState below) {
+        return isTerrainMaterial(state, TerrainSurfaceClassifier::isVegetation)
+                && hangsBetween(
+                        state,
+                        above,
+                        () -> below,
+                        TerrainSurfaceClassifier::isVegetation);
+    }
+
+    private static boolean hangsBetween(
+            BlockState state,
+            BlockState above,
+            Supplier<BlockState> below,
+            Predicate<BlockState> vegetationClassifier) {
         if (!(isTreeLog(above) || isTreeLeaf(above))
-                || y <= minimumBuildHeight
                 || isNaturalGround(state)) {
             return false;
         }
-        BlockState below = stateAtY.apply(y - 1);
-        return below != null
-                && !isTerrainMaterial(below, vegetationClassifier);
+        BlockState under = below.get();
+        return under != null
+                && !isTerrainMaterial(under, vegetationClassifier);
     }
 
     private static boolean isNaturalGround(BlockState state) {
