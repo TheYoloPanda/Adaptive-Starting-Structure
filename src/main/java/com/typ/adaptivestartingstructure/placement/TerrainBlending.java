@@ -42,7 +42,7 @@ public final class TerrainBlending {
                         .candidate()
                         .placementOrigin(),
                 config,
-                climate(level));
+                SnowCoverPlanner.climateOf(level));
         int applied = applyInStages(level, plan);
         return new TerrainBlendingResult(
                 leveling,
@@ -81,7 +81,7 @@ public final class TerrainBlending {
                         .candidate()
                         .placementOrigin(),
                 config,
-                climate(level));
+                SnowCoverPlanner.climateOf(level));
         return new PreparedTerrainBlending(leveling, plan);
     }
 
@@ -115,12 +115,6 @@ public final class TerrainBlending {
                 leveling,
                 blending.plan(),
                 applied);
-    }
-
-    private static SnowCoverPlanner.Climate climate(ServerLevel level) {
-        return position -> level.getBiome(position)
-                .value()
-                .coldEnoughToSnow(position);
     }
 
     private static int applyInStages(

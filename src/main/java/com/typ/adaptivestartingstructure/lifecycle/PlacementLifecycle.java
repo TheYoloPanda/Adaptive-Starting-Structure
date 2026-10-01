@@ -616,7 +616,13 @@ public final class PlacementLifecycle {
                     serverWork.blending);
             var template = TemplatePlacement.place(
                     serverWork.prepared,
-                    blending);
+                    blending,
+                    config);
+            if (config.adaptTemplateToSite()) {
+                AdaptiveStartingStructure.LOGGER.info(
+                        "Adapted the template to the site: {}",
+                        template.plan().siteAdaptation());
+            }
             return WorldFinalization.finish(
                             serverWork.prepared,
                             template,

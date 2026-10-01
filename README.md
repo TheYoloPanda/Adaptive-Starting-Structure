@@ -93,6 +93,30 @@ aggregate uncompressed entity NBT, or NBT nesting depth 64. Entity-addition
 failure after block placement is fail-closed and prevents the world from being
 marked complete.
 
+### Fitting the template to the site
+
+A template carries its own ground, so by default it takes the site's materials
+when it is placed:
+
+```toml
+adaptTemplateToSite = true
+```
+
+The site's surface and filler are the most common ones over the footprint and
+the blend ring, read from the generated terrain. When one surface covers at
+least half of those columns and is a full solid block, every `grass_block` of
+the template becomes that surface, and the `dirt` stacked right under it
+becomes the filler: in a desert the structure stands on sand instead of a green
+patch. Other dirt in the template is left as authored. A stack hanging over air
+ends on the block worldgen puts on ceilings (sandstone under sand, stone under
+gravel, red sandstone under red sand), or stays as authored when its material
+would fall and has no such counterpart. Plants that cannot root in the new
+surface are removed. In a cold biome the template's open tops also get a snow
+layer, as the land around them does, except within reach of its own light.
+
+The server log names the materials chosen and counts what changed. With
+`adaptTemplateToSite = false` the template is placed exactly as authored.
+
 ### Underground spawn markers and safety validation
 
 The `spawn` marker may be below `ground_level`. This is valid: `ground_level`
@@ -294,8 +318,8 @@ stored with the plan and reused when the structure is built, so a change made
 in between does not invalidate a finished plan. The server log reports when
 this happens. Change them before creating a world for them to take effect.
 Settings that play no part in choosing a site, such as
-`placeTemplateEntities`, `ignoredStructureCollisions` and
-`blendDepthAllowance`, keep following the live configuration.
+`placeTemplateEntities`, `adaptTemplateToSite`, `ignoredStructureCollisions`
+and `blendDepthAllowance`, keep following the live configuration.
 
 ### Recovering a world that refuses to start
 

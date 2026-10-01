@@ -35,7 +35,8 @@ public record ConfigSnapshot(
         BlockedStateRecovery blockedStateRecovery,
         boolean placePlayerAtSpawnMarker,
         Set<ResourceLocation> ignoredStructureCollisions,
-        int blendDepthAllowance) {
+        int blendDepthAllowance,
+        boolean adaptTemplateToSite) {
 
     private static final Set<ResourceLocation> BASE_PREFERRED_BIOMES = resourceLocations(
             "minecraft:plains",
@@ -79,8 +80,9 @@ public record ConfigSnapshot(
 
     /**
      * A snapshot that refuses to start a world stuck in a blocked state,
-     * trusts the declared bounds of every generated structure and holds the
-     * blend ring to the structure's own cut and fill limits.
+     * trusts the declared bounds of every generated structure, holds the
+     * blend ring to the structure's own cut and fill limits and places the
+     * template as authored.
      */
     public ConfigSnapshot(
             boolean enabled,
@@ -131,7 +133,8 @@ public record ConfigSnapshot(
                 BlockedStateRecovery.BLOCK,
                 ModConfig.DEFAULT_PLACE_PLAYER_AT_SPAWN_MARKER,
                 Set.of(),
-                0);
+                0,
+                false);
     }
 
     public ConfigSnapshot {
@@ -289,7 +292,8 @@ public record ConfigSnapshot(
             String blockedStateRecovery,
             boolean placePlayerAtSpawnMarker,
             List<? extends String> ignoredStructureCollisions,
-            int blendDepthAllowance) {
+            int blendDepthAllowance,
+            boolean adaptTemplateToSite) {
         Set<ResourceLocation> preferredBiomes = withoutRemoved(
                 mergeAdditional(
                         "additionalPreferredBiomes",
@@ -341,7 +345,8 @@ public record ConfigSnapshot(
                 parseResourceLocations(
                         "ignoredStructureCollisions",
                         ignoredStructureCollisions),
-                blendDepthAllowance);
+                blendDepthAllowance,
+                adaptTemplateToSite);
     }
 
     static boolean isKnownBlockedStateRecovery(Object value) {

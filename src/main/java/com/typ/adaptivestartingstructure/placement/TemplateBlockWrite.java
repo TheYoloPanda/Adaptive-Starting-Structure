@@ -25,6 +25,7 @@ public record TemplateBlockWrite(
     public enum Kind {
         BLOCK,
         EXPLICIT_AIR,
-        MARKER_CLEAR
+        MARKER_CLEAR,
+        SNOW_COVER
     }
 }

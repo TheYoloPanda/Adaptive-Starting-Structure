@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.Block;
@@ -34,6 +35,12 @@ final class SnowCoverPlanner {
 
     interface Climate {
         boolean coldEnoughToSnow(BlockPos position);
+    }
+
+    static Climate climateOf(ServerLevel level) {
+        return position -> level.getBiome(position)
+                .value()
+                .coldEnoughToSnow(position);
     }
 
     record LightSource(BlockPos position, int emission) {
@@ -109,7 +116,7 @@ final class SnowCoverPlanner {
         return List.copyOf(sources);
     }
 
-    private static boolean lit(
+    static boolean lit(
             BlockPos position,
             List<LightSource> lightSources) {
         for (LightSource source : lightSources) {
@@ -121,7 +128,7 @@ final class SnowCoverPlanner {
         return false;
     }
 
-    private static boolean holdsSnow(BlockState state) {
+    static boolean holdsSnow(BlockState state) {
         if (state.is(BlockTags.SNOW_LAYER_CANNOT_SURVIVE_ON)) {
             return false;
         }
@@ -143,11 +150,16 @@ final class SnowCoverPlanner {
                     column,
                     writes,
                     new BlockPos(column.x(), y, column.z()));
-            if (Heightmap.Types.MOTION_BLOCKING.isOpaque().test(state)) {
+            if (blocksMotion(state)) {
                 return y;
             }
         }
         return column.minimumCapturedY() - 1;
+    }
+
+    /* The top worldgen puts snow on is the MOTION_BLOCKING heightmap's. */
+    static boolean blocksMotion(BlockState state) {
+        return Heightmap.Types.MOTION_BLOCKING.isOpaque().test(state);
     }
 
     private static BlockState finalState(

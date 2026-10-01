@@ -42,6 +42,7 @@ public final class ModConfig {
     static final int DEFAULT_MAXIMUM_PERIMETER_ERROR = 4;
     static final double DEFAULT_MAXIMUM_WATER_FRACTION = 0.05D;
     static final boolean DEFAULT_PLACE_TEMPLATE_ENTITIES = false;
+    static final boolean DEFAULT_ADAPT_TEMPLATE_TO_SITE = true;
     static final boolean DEFAULT_REQUIRE_SAFE_SPAWN_AREA = false;
     static final boolean DEFAULT_ALLOW_UNLISTED_LAND_BIOMES = true;
     static final List<String> DEFAULT_EXCLUDED_BIOME_TAGS = List.of(
@@ -130,6 +131,7 @@ public final class ModConfig {
         private final ModConfigSpec.IntValue maximumPerimeterError;
         private final ModConfigSpec.DoubleValue maximumWaterFraction;
         private final ModConfigSpec.BooleanValue placeTemplateEntities;
+        private final ModConfigSpec.BooleanValue adaptTemplateToSite;
         private final ModConfigSpec.BooleanValue requireSafeSpawnArea;
         private final ModConfigSpec.BooleanValue allowUnlistedLandBiomes;
         private final ModConfigSpec.ConfigValue<List<? extends String>> excludedBiomeTags;
@@ -259,6 +261,12 @@ public final class ModConfig {
                                     + "Unsupported entity entries are warned and skipped; players, passengers, "
                                     + "invalid structural coordinates, and safety-limit violations reject placement.")
                     .define("placeTemplateEntities", DEFAULT_PLACE_TEMPLATE_ENTITIES);
+            adaptTemplateToSite = builder
+                    .comment(
+                            "Whether the template's own grass, and the dirt right under it, take the most common "
+                                    + "surface and filler of the site, such as sand in a desert, and whether its open "
+                                    + "tops get snow in a cold biome. When false the template is placed as authored.")
+                    .define("adaptTemplateToSite", DEFAULT_ADAPT_TEMPLATE_TO_SITE);
             requireSafeSpawnArea = builder
                     .comment(
                             "Whether every column in the vanilla spawnRadius area must be safe. "
@@ -383,7 +391,8 @@ public final class ModConfig {
                     read(blockedStateRecovery, defaults),
                     read(placePlayerAtSpawnMarker, defaults),
                     read(ignoredStructureCollisions, defaults),
-                    read(blendDepthAllowance, defaults));
+                    read(blendDepthAllowance, defaults),
+                    read(adaptTemplateToSite, defaults));
         }
 
         private static <T> T read(ModConfigSpec.ConfigValue<T> value, boolean defaults) {
