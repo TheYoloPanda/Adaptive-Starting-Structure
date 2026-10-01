@@ -21,8 +21,18 @@ import net.minecraft.world.level.block.VineBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 final class TerrainSurfaceClassifier {
-    /* The vanilla members of the dirt tag, for where tags are not bound. */
-    private static final Set<String> VANILLA_DIRT = Set.of(
+    /*
+     * The vanilla members of the overworld carver tag, for where tags are not
+     * bound, without the water and snow layers it also names: neither is
+     * terrain material, so neither reaches the check.
+     */
+    private static final Set<String> VANILLA_NATURAL_GROUND = Set.of(
+            "stone",
+            "granite",
+            "diorite",
+            "andesite",
+            "tuff",
+            "deepslate",
             "dirt",
             "coarse_dirt",
             "rooted_dirt",
@@ -31,7 +41,39 @@ final class TerrainSurfaceClassifier {
             "mycelium",
             "moss_block",
             "mud",
-            "muddy_mangrove_roots");
+            "muddy_mangrove_roots",
+            "sand",
+            "red_sand",
+            "suspicious_sand",
+            "terracotta",
+            "white_terracotta",
+            "orange_terracotta",
+            "magenta_terracotta",
+            "light_blue_terracotta",
+            "yellow_terracotta",
+            "lime_terracotta",
+            "pink_terracotta",
+            "gray_terracotta",
+            "light_gray_terracotta",
+            "cyan_terracotta",
+            "purple_terracotta",
+            "blue_terracotta",
+            "brown_terracotta",
+            "green_terracotta",
+            "red_terracotta",
+            "black_terracotta",
+            "iron_ore",
+            "deepslate_iron_ore",
+            "copper_ore",
+            "deepslate_copper_ore",
+            "gravel",
+            "suspicious_gravel",
+            "sandstone",
+            "red_sandstone",
+            "calcite",
+            "packed_ice",
+            "raw_iron_block",
+            "raw_copper_block");
 
     private TerrainSurfaceClassifier() {
     }
@@ -97,9 +139,10 @@ final class TerrainSurfaceClassifier {
      * A block with a trunk or a leaf above it and no terrain under it hangs
      * from the tree. Other mods hang cocoons and fruit there, which neither
      * the vanilla tags nor a list here can name; read as ground, a cocoon
-     * twenty blocks up a jungle tree rejected a site that was flat. Dirt never
-     * hangs: tree features turn the ground under a trunk into dirt, and a
-     * trunk on a one-block roof over a cave still stands on that roof.
+     * twenty blocks up a jungle tree rejected a site that was flat. Natural
+     * ground never hangs: tree features turn the ground under a trunk into
+     * dirt, and a trunk on a one-block roof over a cave, or on a layer of
+     * gravel over water, still stands on that roof.
      */
     private static boolean hangsFromTree(
             BlockState state,
@@ -110,7 +153,7 @@ final class TerrainSurfaceClassifier {
             Predicate<BlockState> vegetationClassifier) {
         if (!(isTreeLog(above) || isTreeLeaf(above))
                 || y <= minimumBuildHeight
-                || isDirt(state)) {
+                || isNaturalGround(state)) {
             return false;
         }
         BlockState below = stateAtY.apply(y - 1);
@@ -118,13 +161,13 @@ final class TerrainSurfaceClassifier {
                 && !isTerrainMaterial(below, vegetationClassifier);
     }
 
-    private static boolean isDirt(BlockState state) {
-        if (state.is(BlockTags.DIRT)) {
+    private static boolean isNaturalGround(BlockState state) {
+        if (state.is(BlockTags.OVERWORLD_CARVER_REPLACEABLES)) {
             return true;
         }
         var id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
         return id.getNamespace().equals("minecraft")
-                && VANILLA_DIRT.contains(id.getPath());
+                && VANILLA_NATURAL_GROUND.contains(id.getPath());
     }
 
     static boolean isTreeLog(BlockState state) {
