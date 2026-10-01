@@ -48,21 +48,24 @@ final class TerrainBlendPlanner {
             TerrainLevelingResult leveling,
             RotatedStructureView structure,
             BlockPos placementOrigin,
-            ConfigSnapshot config) {
+            ConfigSnapshot config,
+            SnowCoverPlanner.Climate climate) {
         return plan(
                 new PreparedTerrainLeveling(
                         leveling.snapshot(),
                         leveling.plan()),
                 structure,
                 placementOrigin,
-                config);
+                config,
+                climate);
     }
 
     static TerrainBlendPlan plan(
             PreparedTerrainLeveling leveling,
             RotatedStructureView structure,
             BlockPos placementOrigin,
-            ConfigSnapshot config) {
+            ConfigSnapshot config,
+            SnowCoverPlanner.Climate climate) {
         TerrainSnapshot snapshot = leveling.snapshot();
         if (leveling.plan().snapshot() != snapshot) {
             throw new IllegalArgumentException(
@@ -178,6 +181,15 @@ final class TerrainBlendPlanner {
                     write.kind());
             treeCleanupWritePositions.add(write.position());
         }
+        SnowCoverPlanner.cover(
+                writes,
+                changedColumnsAround(
+                        snapshot,
+                        targets,
+                        treeCleanupWritePositions,
+                        distances),
+                SnowCoverPlanner.lightSources(structure, placementOrigin),
+                climate);
 
         Map<ChunkPos, List<TerrainWrite>> grouped =
                 new TreeMap<>(CHUNK_ORDER);
@@ -214,6 +226,39 @@ final class TerrainBlendPlanner {
                 treeCleanup.selectedTreeCount(),
                 treeCleanup.selectedBlockCount(),
                 treeCleanup.selectedAccessoryCount());
+    }
+
+    /*
+     * The columns whose surface the mod changes outside the structure: the
+     * reshaped part of the ring and every column tree cleanup clears. The
+     * footprint is the template's own surface.
+     */
+    private static List<TerrainColumnSnapshot> changedColumnsAround(
+            TerrainSnapshot snapshot,
+            List<BlendColumnTarget> targets,
+            Set<BlockPos> treeCleanupWritePositions,
+            FootprintDistanceIndex distances) {
+        Set<Long> changed = new LinkedHashSet<>();
+        for (BlendColumnTarget target : targets) {
+            if (target.modifiesHeight()
+                    && !distances.contains(target.x(), target.z())) {
+                changed.add(TerrainSnapshot.pack(target.x(), target.z()));
+            }
+        }
+        for (BlockPos position : treeCleanupWritePositions) {
+            if (!distances.contains(position.getX(), position.getZ())) {
+                changed.add(TerrainSnapshot.pack(
+                        position.getX(),
+                        position.getZ()));
+            }
+        }
+        List<TerrainColumnSnapshot> columns = new ArrayList<>(changed.size());
+        for (TerrainColumnSnapshot column : snapshot.columns()) {
+            if (changed.contains(TerrainSnapshot.pack(column.x(), column.z()))) {
+                columns.add(column);
+            }
+        }
+        return columns;
     }
 
     static double smoothstep(double value) {

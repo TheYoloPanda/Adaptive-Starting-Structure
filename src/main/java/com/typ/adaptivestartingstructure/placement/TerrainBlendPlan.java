@@ -11,6 +11,7 @@ import java.util.Objects;
 import java.util.Set;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.SnowLayerBlock;
 
 public final class TerrainBlendPlan {
     private final TerrainSnapshot snapshot;
@@ -25,6 +26,7 @@ public final class TerrainBlendPlan {
     private final int modifiedColumns;
     private final int terrainWrites;
     private final int vegetationWrites;
+    private final int restoredSnowLayers;
     private final int selectedTreeCount;
     private final int selectedTreeBlockCount;
     private final int selectedTreeAccessoryCount;
@@ -87,10 +89,17 @@ public final class TerrainBlendPlan {
                 new LinkedHashMap<>();
         Set<BlockPos> treeCleanupPositions =
                 immutablePositions(treeCleanupWritePositions);
+        Set<Long> treeCleanupColumns = new HashSet<>();
+        for (BlockPos position : treeCleanupPositions) {
+            treeCleanupColumns.add(TerrainSnapshot.pack(
+                    position.getX(),
+                    position.getZ()));
+        }
         List<TerrainWrite> flattened = new ArrayList<>();
         Set<BlockPos> writtenPositions = new HashSet<>();
         int terrain = 0;
         int vegetation = 0;
+        int snow = 0;
         for (Map.Entry<ChunkPos, List<TerrainWrite>> entry
                 : writesByChunk.entrySet()) {
             ChunkPos chunk =
@@ -107,6 +116,12 @@ public final class TerrainBlendPlan {
                         write.position().getZ());
                 boolean treeCleanup = treeCleanupPositions.contains(
                         write.position());
+                boolean treeCleanupColumnSnow =
+                        write.kind() == TerrainWrite.Kind.SNOW_COVER
+                                && treeCleanupColumns.contains(
+                                        TerrainSnapshot.pack(
+                                                write.position().getX(),
+                                                write.position().getZ()));
                 boolean placementFootprint =
                         Double.compare(
                                 target.distanceFromFootprint(),
@@ -117,6 +132,7 @@ public final class TerrainBlendPlan {
                                         write.position().getX(),
                                         write.position().getZ())
                                 && !treeCleanup
+                                && !treeCleanupColumnSnow
                         || !write.originalState()
                                         .getFluidState()
                                         .isEmpty()
@@ -143,6 +159,18 @@ public final class TerrainBlendPlan {
                         }
                         vegetation++;
                     }
+                    case SNOW_COVER -> {
+                        if (placementFootprint
+                                || !target.modifiesHeight()
+                                        && !treeCleanupColumnSnow) {
+                            throw new IllegalArgumentException(
+                                    "Snow cover targets an unaffected column");
+                        }
+                        if (write.targetState().getBlock()
+                                instanceof SnowLayerBlock) {
+                            snow++;
+                        }
+                    }
                     case FOOTPRINT_CUT,
                             FOOTPRINT_FILL,
                             FOOTPRINT_RESURFACE ->
@@ -151,7 +179,9 @@ public final class TerrainBlendPlan {
                 }
                 if (treeCleanup
                         && write.kind()
-                                != TerrainWrite.Kind.VEGETATION_CLEAR) {
+                                != TerrainWrite.Kind.VEGETATION_CLEAR
+                        && write.kind()
+                                != TerrainWrite.Kind.SNOW_COVER) {
                     throw new IllegalArgumentException(
                             "Tree cleanup contains a non-vegetation write");
                 }
@@ -172,6 +202,7 @@ public final class TerrainBlendPlan {
                 .toList();
         this.terrainWrites = terrain;
         this.vegetationWrites = vegetation;
+        this.restoredSnowLayers = snow;
         if (selectedTreeCount < 0
                 || selectedTreeBlockCount < 0
                 || selectedTreeAccessoryCount < 0
@@ -244,6 +275,10 @@ public final class TerrainBlendPlan {
 
     public int vegetationWrites() {
         return vegetationWrites;
+    }
+
+    public int restoredSnowLayers() {
+        return restoredSnowLayers;
     }
 
     public int selectedTreeCount() {

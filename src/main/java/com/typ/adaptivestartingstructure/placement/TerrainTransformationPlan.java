@@ -98,7 +98,8 @@ public final class TerrainTransformationPlan {
                     case BLEND_CUT,
                             BLEND_FILL,
                             BLEND_MATERIAL,
-                            VEGETATION_CLEAR ->
+                            VEGETATION_CLEAR,
+                            SNOW_COVER ->
                             throw new IllegalArgumentException(
                                     "Leveling plan contains a blend write");
                 }
