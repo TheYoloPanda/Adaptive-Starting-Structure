@@ -19,6 +19,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.BeehiveBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CocoaBlock;
+import net.minecraft.world.level.block.HugeMushroomBlock;
 import net.minecraft.world.level.block.VineBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -65,7 +66,8 @@ final class TreeCleanupPlanner {
         Map<BlockPos, LeafOwnership> leafOwnership =
                 assignLeaves(
                         inventory.leaves.keySet(),
-                        logIndex.ownerByLog);
+                        logIndex.ownerByLog,
+                        inventory.states);
         List<Set<Integer>> supports = supportingComponents(
                 logIndex,
                 inventory.leaves.keySet());
@@ -200,7 +202,8 @@ final class TreeCleanupPlanner {
                         column.z());
                 if (TerrainSurfaceClassifier.isTreeLog(state)) {
                     logs.put(position, state);
-                } else if (TerrainSurfaceClassifier.isTreeLeaf(state)) {
+                } else if (TerrainSurfaceClassifier.isTreeLeaf(state)
+                        || isGiantMushroomPart(state)) {
                     leaves.put(position, state);
                 } else if (state.getBlock() instanceof VineBlock) {
                     vines.add(position);
@@ -265,15 +268,26 @@ final class TreeCleanupPlanner {
                 List.copyOf(components));
     }
 
+    /*
+     * A giant mushroom's cap is the foliage of its stem, which already counts
+     * as a trunk, and goes with it. Caps only belong to stems and leaves only
+     * to trunks: otherwise removing an oak would take the cap blocks it
+     * happens to touch, and removing a mushroom the leaves next to its stem.
+     */
     private static Map<BlockPos, LeafOwnership> assignLeaves(
             Set<BlockPos> leaves,
-            Map<BlockPos, Integer> ownerByLog) {
+            Map<BlockPos, Integer> ownerByLog,
+            Map<BlockPos, BlockState> states) {
         Map<BlockPos, LeafOwnership> ownership = new HashMap<>();
         Queue<LeafVisit> pending = new ArrayDeque<>();
         for (BlockPos leaf : sorted(leaves)) {
             for (Direction direction : Direction.values()) {
-                Integer owner = ownerByLog.get(leaf.relative(direction));
-                if (owner != null) {
+                BlockPos log = leaf.relative(direction);
+                Integer owner = ownerByLog.get(log);
+                if (owner != null
+                        && sameFoliageFamily(
+                                states.get(leaf),
+                                states.get(log))) {
                     updateOwnership(
                             ownership,
                             pending,
@@ -294,7 +308,10 @@ final class TreeCleanupPlanner {
             }
             for (Direction direction : Direction.values()) {
                 BlockPos neighbor = visit.position.relative(direction);
-                if (leaves.contains(neighbor)) {
+                if (leaves.contains(neighbor)
+                        && sameFoliageFamily(
+                                states.get(visit.position),
+                                states.get(neighbor))) {
                     updateOwnership(
                             ownership,
                             pending,
@@ -305,6 +322,16 @@ final class TreeCleanupPlanner {
             }
         }
         return ownership;
+    }
+
+    private static boolean sameFoliageFamily(
+            BlockState first,
+            BlockState second) {
+        return isGiantMushroomPart(first) == isGiantMushroomPart(second);
+    }
+
+    private static boolean isGiantMushroomPart(BlockState state) {
+        return state.getBlock() instanceof HugeMushroomBlock;
     }
 
     private static void updateOwnership(
