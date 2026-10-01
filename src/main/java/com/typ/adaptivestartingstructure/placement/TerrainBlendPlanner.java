@@ -89,6 +89,16 @@ final class TerrainBlendPlanner {
                     write.targetState());
         }
 
+        /*
+         * The ring only eases the land into the structure's level, so a few
+         * columns a little deeper than the footprint may go are a filled pit
+         * or a trimmed knoll, not a foundation. The footprint itself is held
+         * to the plain limits before blending runs.
+         */
+        int maximumBlendCut = config.maximumCutDepth()
+                + config.blendDepthAllowance();
+        int maximumBlendFill = config.maximumFillDepth()
+                + config.blendDepthAllowance();
         List<BlendColumnTarget> targets =
                 new ArrayList<>(snapshot.columns().size());
         Map<BlockPos, TerrainWrite> writes =
@@ -114,15 +124,15 @@ final class TerrainBlendPlanner {
                             targetY);
             targets.add(target);
             int signedError = column.groundY() - targetY;
-            if (signedError > config.maximumCutDepth()
-                    || -signedError > config.maximumFillDepth()) {
+            if (signedError > maximumBlendCut
+                    || -signedError > maximumBlendFill) {
                 throw UnsuitableGeneratedSiteException
-                        .cutFillThresholdExceeded(
-                                "Generated blend",
+                        .blendThresholdExceeded(
                                 column,
                                 targetY,
                                 config.maximumCutDepth(),
-                                config.maximumFillDepth());
+                                config.maximumFillDepth(),
+                                config.blendDepthAllowance());
             }
             if (target.modifiesHeight()) {
                 planTerrainColumn(

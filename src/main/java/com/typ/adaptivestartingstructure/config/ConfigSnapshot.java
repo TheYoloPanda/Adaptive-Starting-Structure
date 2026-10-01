@@ -34,7 +34,8 @@ public record ConfigSnapshot(
         Set<ResourceLocation> excludedBiomeTags,
         BlockedStateRecovery blockedStateRecovery,
         boolean placePlayerAtSpawnMarker,
-        Set<ResourceLocation> ignoredStructureCollisions) {
+        Set<ResourceLocation> ignoredStructureCollisions,
+        int blendDepthAllowance) {
 
     private static final Set<ResourceLocation> BASE_PREFERRED_BIOMES = resourceLocations(
             "minecraft:plains",
@@ -77,8 +78,9 @@ public record ConfigSnapshot(
             "minecraft:stony_peaks");
 
     /**
-     * A snapshot that refuses to start a world stuck in a blocked state and
-     * trusts the declared bounds of every generated structure.
+     * A snapshot that refuses to start a world stuck in a blocked state,
+     * trusts the declared bounds of every generated structure and holds the
+     * blend ring to the structure's own cut and fill limits.
      */
     public ConfigSnapshot(
             boolean enabled,
@@ -128,7 +130,8 @@ public record ConfigSnapshot(
                 excludedBiomeTags,
                 BlockedStateRecovery.BLOCK,
                 ModConfig.DEFAULT_PLACE_PLAYER_AT_SPAWN_MARKER,
-                Set.of());
+                Set.of(),
+                0);
     }
 
     public ConfigSnapshot {
@@ -160,6 +163,7 @@ public record ConfigSnapshot(
                 ModConfig.MAX_BLEND_WIDTH);
         validateRange("maximumCutDepth", maximumCutDepth, 0, ModConfig.MAX_BLOCK_DISTANCE);
         validateRange("maximumFillDepth", maximumFillDepth, 0, ModConfig.MAX_BLOCK_DISTANCE);
+        validateRange("blendDepthAllowance", blendDepthAllowance, 0, ModConfig.MAX_BLOCK_DISTANCE);
         validateRange("maximumElevationRange", maximumElevationRange, 0, ModConfig.MAX_BLOCK_DISTANCE);
         validateRange("maximumPerimeterError", maximumPerimeterError, 0, ModConfig.MAX_BLOCK_DISTANCE);
         if (!Double.isFinite(maximumWaterFraction)
@@ -284,7 +288,8 @@ public record ConfigSnapshot(
             List<? extends String> removedExcludedBiomes,
             String blockedStateRecovery,
             boolean placePlayerAtSpawnMarker,
-            List<? extends String> ignoredStructureCollisions) {
+            List<? extends String> ignoredStructureCollisions,
+            int blendDepthAllowance) {
         Set<ResourceLocation> preferredBiomes = withoutRemoved(
                 mergeAdditional(
                         "additionalPreferredBiomes",
@@ -335,7 +340,8 @@ public record ConfigSnapshot(
                 placePlayerAtSpawnMarker,
                 parseResourceLocations(
                         "ignoredStructureCollisions",
-                        ignoredStructureCollisions));
+                        ignoredStructureCollisions),
+                blendDepthAllowance);
     }
 
     static boolean isKnownBlockedStateRecovery(Object value) {
