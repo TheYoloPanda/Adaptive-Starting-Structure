@@ -57,9 +57,8 @@ public final class SafePlacementFailureScreen extends Screen {
         this.addRenderableWidget(
                 Button.builder(
                                 Component.translatable(
-                                        "screen.adaptive_starting_structure.fallback.return_to_world_list"),
-                                button -> ClientFallbackDecisionHandler
-                                        .returnToWorldList(this))
+                                        "screen.adaptive_starting_structure.fallback.delete_and_create"),
+                                button -> showDeleteConfirmation())
                         .bounds(
                                 this.width / 2 - 155,
                                 buttonY,
@@ -78,6 +77,25 @@ public final class SafePlacementFailureScreen extends Screen {
                                 150,
                                 20)
                         .build());
+    }
+
+    private void showDeleteConfirmation() {
+        this.minecraft.setScreen(new ConfirmScreen(
+                confirmed -> {
+                    if (confirmed) {
+                        ClientFallbackDecisionHandler
+                                .deleteWorldAndCreateNew(this);
+                    } else {
+                        this.minecraft.setScreen(this);
+                    }
+                },
+                Component.translatable(
+                        "screen.adaptive_starting_structure.fallback.delete_confirm.title"),
+                Component.translatable(
+                        "screen.adaptive_starting_structure.fallback.delete_confirm.message"),
+                Component.translatable(
+                        "screen.adaptive_starting_structure.fallback.delete_and_create"),
+                CommonComponents.GUI_CANCEL));
     }
 
     private void showContinueConfirmation() {
