@@ -203,11 +203,18 @@ The ground under the site is still judged like any other terrain, so a crater
 under the footprint is treated as the hole it is.
 
 If every planned candidate is rejected, singleplayer shows a blocking choice:
-`Return to World List` preserves the world in its pending state, while
-`Continue Anyway` switches permanently to Minecraft's normal spawn without
-the starting structure (and restores the vanilla Bonus Chest choice when
-enabled). A dedicated server stops cleanly after logging the full error.
-Unexpected or potentially partial placement failures remain fail-closed.
+`Delete World and Create New` deletes this world after a confirmation and
+opens Create New World, while `Continue Anyway` switches permanently to
+Minecraft's normal spawn without the starting structure (and restores the
+vanilla Bonus Chest choice when enabled). A dedicated server stops cleanly
+after logging the full error. Unexpected or potentially partial placement
+failures remain fail-closed.
+
+The deletion removes only the world-list entry whose folder is the running
+world's, and only once the integrated server has stopped and released the
+world, through the same call as the world list's Delete button. If the world
+cannot be identified or deleted, it stays on disk and the world list opens
+with a message saying it was not deleted.
 
 ### Command alternative
 
