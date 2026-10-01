@@ -29,6 +29,7 @@ public record TerrainWrite(
         BLEND_CUT,
         BLEND_FILL,
         BLEND_MATERIAL,
-        VEGETATION_CLEAR
+        VEGETATION_CLEAR,
+        SNOW_COVER
     }
 }

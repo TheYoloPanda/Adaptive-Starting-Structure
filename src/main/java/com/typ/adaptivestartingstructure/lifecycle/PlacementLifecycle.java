@@ -545,6 +545,11 @@ public final class PlacementLifecycle {
                             blending.plan().selectedTreeAccessoryCount(),
                             blending.plan().treeCleanupWrites());
                 }
+                if (blending.plan().restoredSnowLayers() > 0) {
+                    AdaptiveStartingStructure.LOGGER.info(
+                            "Prepared snow cover on {} columns the blend or tree cleanup uncovers",
+                            blending.plan().restoredSnowLayers());
+                }
                 return new ServerPlacementWork(
                         prepared,
                         terrain,
