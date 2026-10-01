@@ -183,6 +183,17 @@ cut/fill limits uses the same site-level retry before any world writes.
 is generated, the edge of the footprint is held to the cut and fill limits like
 the rest of it, and the blend absorbs the step.
 
+The blend ring may go a little further than the footprint, since it only eases
+the land into the structure's level: a small pit next to the site, which the
+planner cannot see from the noise, gets filled instead of costing the site. By default each ring column may be cut or filled two blocks
+past `maximumCutDepth` and `maximumFillDepth`:
+
+```toml
+blendDepthAllowance = 2
+```
+
+Set it to `0` to hold the ring to the same limits as the footprint.
+
 The same preflight rejects a site when the complete template volume would
 intersect a generated vanilla, datapack, or modded structure registered with
 Minecraft. It also rejects terrain, vegetation, or whole-tree writes that
@@ -277,8 +288,8 @@ stored with the plan and reused when the structure is built, so a change made
 in between does not invalidate a finished plan. The server log reports when
 this happens. Change them before creating a world for them to take effect.
 Settings that play no part in choosing a site, such as
-`placeTemplateEntities` and `ignoredStructureCollisions`, keep following the
-live configuration.
+`placeTemplateEntities`, `ignoredStructureCollisions` and
+`blendDepthAllowance`, keep following the live configuration.
 
 ### Recovering a world that refuses to start
 

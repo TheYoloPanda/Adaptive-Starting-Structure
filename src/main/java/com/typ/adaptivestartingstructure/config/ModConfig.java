@@ -37,6 +37,7 @@ public final class ModConfig {
     static final int DEFAULT_BLEND_WIDTH = 24;
     static final int DEFAULT_MAXIMUM_CUT_DEPTH = 8;
     static final int DEFAULT_MAXIMUM_FILL_DEPTH = 8;
+    static final int DEFAULT_BLEND_DEPTH_ALLOWANCE = 2;
     static final int DEFAULT_MAXIMUM_ELEVATION_RANGE = 12;
     static final int DEFAULT_MAXIMUM_PERIMETER_ERROR = 4;
     static final double DEFAULT_MAXIMUM_WATER_FRACTION = 0.05D;
@@ -124,6 +125,7 @@ public final class ModConfig {
         private final ModConfigSpec.IntValue blendWidth;
         private final ModConfigSpec.IntValue maximumCutDepth;
         private final ModConfigSpec.IntValue maximumFillDepth;
+        private final ModConfigSpec.IntValue blendDepthAllowance;
         private final ModConfigSpec.IntValue maximumElevationRange;
         private final ModConfigSpec.IntValue maximumPerimeterError;
         private final ModConfigSpec.DoubleValue maximumWaterFraction;
@@ -223,6 +225,15 @@ public final class ModConfig {
             maximumFillDepth = builder
                     .comment("Maximum number of blocks that terrain may be filled.")
                     .defineInRange("maximumFillDepth", DEFAULT_MAXIMUM_FILL_DEPTH, 0, MAX_BLOCK_DISTANCE);
+            blendDepthAllowance = builder
+                    .comment(
+                            "Extra blocks the blend ring may cut or fill beyond maximumCutDepth and maximumFillDepth "
+                                    + "once the terrain is generated. 0 holds the ring to the same limits as the structure.")
+                    .defineInRange(
+                            "blendDepthAllowance",
+                            DEFAULT_BLEND_DEPTH_ALLOWANCE,
+                            0,
+                            MAX_BLOCK_DISTANCE);
             maximumElevationRange = builder
                     .comment("Maximum elevation range allowed across the evaluated site.")
                     .defineInRange(
@@ -371,7 +382,8 @@ public final class ModConfig {
                     read(removedExcludedBiomes, defaults),
                     read(blockedStateRecovery, defaults),
                     read(placePlayerAtSpawnMarker, defaults),
-                    read(ignoredStructureCollisions, defaults));
+                    read(ignoredStructureCollisions, defaults),
+                    read(blendDepthAllowance, defaults));
         }
 
         private static <T> T read(ModConfigSpec.ConfigValue<T> value, boolean defaults) {

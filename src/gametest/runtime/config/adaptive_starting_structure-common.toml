@@ -50,6 +50,10 @@ maximumCutDepth = 8
 # Default: 8
 # Range: 0 ~ 30000000
 maximumFillDepth = 8
+#Extra blocks the blend ring may cut or fill beyond maximumCutDepth and maximumFillDepth once the terrain is generated. 0 holds the ring to the same limits as the structure.
+# Default: 2
+# Range: 0 ~ 30000000
+blendDepthAllowance = 2
 #Maximum elevation range allowed across the evaluated site.
 # Default: 12
 # Range: 0 ~ 30000000

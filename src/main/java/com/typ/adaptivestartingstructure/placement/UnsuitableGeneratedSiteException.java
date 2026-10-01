@@ -15,6 +15,34 @@ public final class UnsuitableGeneratedSiteException
             int targetY,
             int maximumCutDepth,
             int maximumFillDepth) {
+        return thresholdExceeded(
+                area,
+                column,
+                targetY,
+                "maximumCutDepth=" + maximumCutDepth
+                        + ", maximumFillDepth=" + maximumFillDepth);
+    }
+
+    static UnsuitableGeneratedSiteException blendThresholdExceeded(
+            TerrainColumnSnapshot column,
+            int targetY,
+            int maximumCutDepth,
+            int maximumFillDepth,
+            int blendDepthAllowance) {
+        return thresholdExceeded(
+                "Generated blend",
+                column,
+                targetY,
+                "maximumCutDepth=" + maximumCutDepth
+                        + ", maximumFillDepth=" + maximumFillDepth
+                        + ", blendDepthAllowance=" + blendDepthAllowance);
+    }
+
+    private static UnsuitableGeneratedSiteException thresholdExceeded(
+            String area,
+            TerrainColumnSnapshot column,
+            int targetY,
+            String configuredLimits) {
         int signedError = column.groundY() - targetY;
         int cutDepth = Math.max(0, signedError);
         int fillDepth = Math.max(0, -signedError);
@@ -29,10 +57,8 @@ public final class UnsuitableGeneratedSiteException
                         + cutDepth
                         + ", fillDepth="
                         + fillDepth
-                        + "], configured[maximumCutDepth="
-                        + maximumCutDepth
-                        + ", maximumFillDepth="
-                        + maximumFillDepth
+                        + "], configured["
+                        + configuredLimits
                         + "]; "
                         + describeGround(
                                 column.groundY(),
