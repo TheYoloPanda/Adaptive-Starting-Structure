@@ -38,12 +38,23 @@ final class TemplatePlacementApplier {
 
         int applied = 0;
         for (TemplateBlockWrite write : plan.writes()) {
+            /*
+             * Minecraft refuses a write that changes nothing. A block an
+             * earlier write of this pass took away, such as a vine whose
+             * support went first, already holds its planned state; only a
+             * refusal that leaves anything else fails the placement.
+             */
             if (!world.setBlock(
-                    write.position(),
-                    write.targetState())) {
+                            write.position(),
+                            write.targetState())
+                    && !world.blockState(write.position())
+                            .equals(write.targetState())) {
                 throw new PlacementPreparationException(
                         "World rejected template write at "
-                                + write.position());
+                                + write.position()
+                                + ": planned " + write.originalState()
+                                + " -> " + write.targetState()
+                                + ", found " + world.blockState(write.position()));
             }
             applied++;
         }
