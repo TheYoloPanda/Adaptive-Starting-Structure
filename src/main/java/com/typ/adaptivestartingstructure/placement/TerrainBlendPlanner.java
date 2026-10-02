@@ -190,6 +190,19 @@ final class TerrainBlendPlanner {
                         distances),
                 SnowCoverPlanner.lightSources(structure, placementOrigin),
                 climate);
+        /*
+         * Beyond the blend only tree cleanup may write, up to the observation
+         * margin, so the snow it uncovers there is applied and checked with
+         * the tree-cleanup writes.
+         */
+        for (TerrainWrite write : writes.values()) {
+            if (write.kind() == TerrainWrite.Kind.SNOW_COVER
+                    && !interventionBounds.containsHorizontal(
+                            write.position().getX(),
+                            write.position().getZ())) {
+                treeCleanupWritePositions.add(write.position());
+            }
+        }
 
         Map<ChunkPos, List<TerrainWrite>> grouped =
                 new TreeMap<>(CHUNK_ORDER);
