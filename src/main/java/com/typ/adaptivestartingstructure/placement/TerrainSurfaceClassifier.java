@@ -75,6 +75,14 @@ final class TerrainSurfaceClassifier {
             "packed_ice",
             "raw_iron_block",
             "raw_copper_block");
+    /*
+     * Tree features turn the ground under a trunk into dirt, the azalea into
+     * rooted dirt, whatever the surface was. Coarse dirt or podzol under a
+     * trunk is a surface worldgen chose.
+     */
+    private static final Set<Block> TRUNK_GROUND = Set.of(
+            Blocks.DIRT,
+            Blocks.ROOTED_DIRT);
 
     private TerrainSurfaceClassifier() {
     }
@@ -193,6 +201,10 @@ final class TerrainSurfaceClassifier {
         var id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
         return id.getNamespace().equals("minecraft")
                 && VANILLA_NATURAL_GROUND.contains(id.getPath());
+    }
+
+    static boolean isTrunkGround(BlockState ground, BlockState above) {
+        return TRUNK_GROUND.contains(ground.getBlock()) && isTreeLog(above);
     }
 
     static boolean isTreeLog(BlockState state) {

@@ -27,6 +27,7 @@ public final class TerrainBlendPlan {
     private final int terrainWrites;
     private final int vegetationWrites;
     private final int restoredSnowLayers;
+    private final int resurfacedTrunkGrounds;
     private final int selectedTreeCount;
     private final int selectedTreeBlockCount;
     private final int selectedTreeAccessoryCount;
@@ -41,7 +42,8 @@ public final class TerrainBlendPlan {
             Set<BlockPos> treeCleanupWritePositions,
             int selectedTreeCount,
             int selectedTreeBlockCount,
-            int selectedTreeAccessoryCount) {
+            int selectedTreeAccessoryCount,
+            int resurfacedTrunkGrounds) {
         this.snapshot = Objects.requireNonNull(snapshot, "snapshot");
         this.interventionBounds = Objects.requireNonNull(
                 interventionBounds,
@@ -99,6 +101,7 @@ public final class TerrainBlendPlan {
         Set<BlockPos> writtenPositions = new HashSet<>();
         int terrain = 0;
         int vegetation = 0;
+        int trunkGround = 0;
         int snow = 0;
         for (Map.Entry<ChunkPos, List<TerrainWrite>> entry
                 : writesByChunk.entrySet()) {
@@ -159,6 +162,16 @@ public final class TerrainBlendPlan {
                         }
                         vegetation++;
                     }
+                    case TRUNK_GROUND_RESURFACE -> {
+                        if (!treeCleanup
+                                || target.modifiesHeight()
+                                || placementFootprint) {
+                            throw new IllegalArgumentException(
+                                    "Trunk-ground write is outside tree cleanup"
+                                            + " or on a reshaped or footprint column");
+                        }
+                        trunkGround++;
+                    }
                     case SNOW_COVER -> {
                         if (placementFootprint
                                 || !target.modifiesHeight()
@@ -180,6 +193,8 @@ public final class TerrainBlendPlan {
                 if (treeCleanup
                         && write.kind()
                                 != TerrainWrite.Kind.VEGETATION_CLEAR
+                        && write.kind()
+                                != TerrainWrite.Kind.TRUNK_GROUND_RESURFACE
                         && write.kind()
                                 != TerrainWrite.Kind.SNOW_COVER) {
                     throw new IllegalArgumentException(
@@ -207,10 +222,12 @@ public final class TerrainBlendPlan {
                 || selectedTreeBlockCount < 0
                 || selectedTreeAccessoryCount < 0
                 || selectedTreeAccessoryCount > selectedTreeBlockCount
+                || resurfacedTrunkGrounds < trunkGround
                 || !writtenPositions.containsAll(treeCleanupPositions)) {
             throw new IllegalArgumentException(
                     "Tree-cleanup metrics do not match blend writes");
         }
+        this.resurfacedTrunkGrounds = resurfacedTrunkGrounds;
         this.selectedTreeCount = selectedTreeCount;
         this.selectedTreeBlockCount = selectedTreeBlockCount;
         this.selectedTreeAccessoryCount = selectedTreeAccessoryCount;
@@ -279,6 +296,10 @@ public final class TerrainBlendPlan {
 
     public int restoredSnowLayers() {
         return restoredSnowLayers;
+    }
+
+    public int resurfacedTrunkGrounds() {
+        return resurfacedTrunkGrounds;
     }
 
     public int selectedTreeCount() {

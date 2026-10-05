@@ -99,6 +99,7 @@ public final class TerrainTransformationPlan {
                             BLEND_FILL,
                             BLEND_MATERIAL,
                             VEGETATION_CLEAR,
+                            TRUNK_GROUND_RESURFACE,
                             SNOW_COVER ->
                             throw new IllegalArgumentException(
                                     "Leveling plan contains a blend write");

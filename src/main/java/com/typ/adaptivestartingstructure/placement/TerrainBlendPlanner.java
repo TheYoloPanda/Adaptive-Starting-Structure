@@ -15,6 +15,7 @@ import java.util.TreeMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -84,6 +85,10 @@ final class TerrainBlendPlanner {
                 FootprintDistanceIndex.create(
                         structure,
                         placementOrigin);
+        Block siteSurface = TemplateSiteAdaptation.materials(
+                        snapshot,
+                        interventionBounds)
+                .surface();
         Map<BlockPos, BlockState> stateAfterLeveling =
                 new HashMap<>(leveling.plan().totalWrites());
         for (TerrainWrite write : leveling.plan().writes()) {
@@ -106,6 +111,7 @@ final class TerrainBlendPlanner {
                 new ArrayList<>(snapshot.columns().size());
         Map<BlockPos, TerrainWrite> writes =
                 new LinkedHashMap<>();
+        int resurfacedTrunkGrounds = 0;
         for (TerrainColumnSnapshot column
                 : snapshot.columns()) {
             double distance =
@@ -138,11 +144,19 @@ final class TerrainBlendPlanner {
                                 config.blendDepthAllowance());
             }
             if (target.modifiesHeight()) {
+                BlockState surface = surfaceMaterial(
+                        column,
+                        distances.contains(column.x(), column.z()),
+                        siteSurface);
+                if (!surface.equals(column.surfaceMaterial())) {
+                    resurfacedTrunkGrounds++;
+                }
                 planTerrainColumn(
                         writes,
                         snapshot,
                         column,
                         targetY,
+                        surface,
                         stateAfterLeveling);
             }
             if (target.modifiesHeight()
@@ -169,7 +183,8 @@ final class TerrainBlendPlanner {
                         targets,
                         structure,
                         placementOrigin,
-                        occupiedWritePositions);
+                        occupiedWritePositions,
+                        siteSurface);
         Set<BlockPos> treeCleanupWritePositions =
                 new LinkedHashSet<>();
         for (TerrainWrite write : treeCleanup.writes()) {
@@ -238,7 +253,9 @@ final class TerrainBlendPlanner {
                 treeCleanupWritePositions,
                 treeCleanup.selectedTreeCount(),
                 treeCleanup.selectedBlockCount(),
-                treeCleanup.selectedAccessoryCount());
+                treeCleanup.selectedAccessoryCount(),
+                resurfacedTrunkGrounds
+                        + treeCleanup.resurfacedTrunkGrounds());
     }
 
     /*
@@ -299,11 +316,30 @@ final class TerrainBlendPlanner {
         return (int) rounded;
     }
 
+    /*
+     * The dirt a tree feature put under a trunk is not the column's own
+     * surface. Every trunk in a reshaped column goes, so the site's surface
+     * takes the top there instead. The footprint keeps it, as tree cleanup
+     * leaves it: the ground there is the template's to set.
+     */
+    private static BlockState surfaceMaterial(
+            TerrainColumnSnapshot column,
+            boolean footprint,
+            Block siteSurface) {
+        return !footprint
+                && TerrainSurfaceClassifier.isTrunkGround(
+                        column.surfaceMaterial(),
+                        column.stateAboveGround())
+                ? siteSurface.defaultBlockState()
+                : column.surfaceMaterial();
+    }
+
     private static void planTerrainColumn(
             Map<BlockPos, TerrainWrite> writes,
             TerrainSnapshot snapshot,
             TerrainColumnSnapshot column,
             int targetY,
+            BlockState surface,
             Map<BlockPos, BlockState> stateAfterLeveling) {
         if (targetY < column.groundY()) {
             for (int y = column.groundY();
@@ -336,6 +372,7 @@ final class TerrainBlendPlanner {
                 int depth = targetY - y;
                 BlockState material = materialAtDepth(
                         column,
+                        surface,
                         depth);
                 addWrite(
                         writes,
@@ -369,7 +406,7 @@ final class TerrainBlendPlanner {
                                 column.x(),
                                 y,
                                 column.z()),
-                        materialAtDepth(column, depth),
+                        materialAtDepth(column, surface, depth),
                         TerrainWrite.Kind.BLEND_FILL);
             }
         }
@@ -408,9 +445,10 @@ final class TerrainBlendPlanner {
 
     private static BlockState materialAtDepth(
             TerrainColumnSnapshot column,
+            BlockState surface,
             int depth) {
         if (depth == 0) {
-            return column.surfaceMaterial();
+            return surface;
         }
         if (depth <= FILLER_DEPTH) {
             return column.fillerMaterial();
