@@ -196,9 +196,11 @@ inside an unchanged part of the blend or observation area are preserved.
 
 A removed tree takes with it what rests on it or hangs from it: vines, cocoa,
 bee nests, the snow on its canopy, a giant mushroom's cap, and blocks other
-mods hang under trees. In a cold biome the reshaped ring and every column
-tree cleanup clears get back the snow layer worldgen would have put there,
-except within reach of the structure's own light, where it would melt.
+mods hang under trees. The ground its trunk stood on, which worldgen turns to
+dirt, takes the site's most common surface instead of staying a bare patch.
+In a cold biome the reshaped ring and every column tree cleanup clears get
+back the snow layer worldgen would have put there, except within reach of the
+structure's own light, where it would melt.
 
 If a complete interfering tree cannot be resolved inside the observation
 margin, the physical site is rejected before placement. All planned rotations

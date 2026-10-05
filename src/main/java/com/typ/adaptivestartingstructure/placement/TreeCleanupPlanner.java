@@ -17,8 +17,10 @@ import java.util.TreeSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.BeehiveBlock;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CocoaBlock;
+import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.HugeMushroomBlock;
 import net.minecraft.world.level.block.SnowLayerBlock;
 import net.minecraft.world.level.block.VineBlock;
@@ -26,9 +28,10 @@ import net.minecraft.world.level.block.state.BlockState;
 
 /*
  * One unit on purpose: finding the trees a placement touches, deciding which
- * of them may go and what goes with them are steps of a single rule over the
- * same private indexes of logs, leaves and their owners. Split apart, every
- * piece would need those indexes exported to do one step of that rule.
+ * of them may go, what goes with them and what ground their trunks leave are
+ * steps of a single rule over the same private indexes of logs, leaves and
+ * their owners. Split apart, every piece would need those indexes exported to
+ * do one step of that rule.
  */
 final class TreeCleanupPlanner {
     private static final int MAX_LEAF_DISTANCE = 7;
@@ -48,7 +51,8 @@ final class TreeCleanupPlanner {
             List<BlendColumnTarget> blendTargets,
             RotatedStructureView structure,
             BlockPos placementOrigin,
-            Set<BlockPos> occupiedWritePositions) {
+            Set<BlockPos> occupiedWritePositions,
+            Block siteSurface) {
         Objects.requireNonNull(leveling, "leveling");
         Objects.requireNonNull(blendTargets, "blendTargets");
         Objects.requireNonNull(structure, "structure");
@@ -56,6 +60,7 @@ final class TreeCleanupPlanner {
         Objects.requireNonNull(
                 occupiedWritePositions,
                 "occupiedWritePositions");
+        Objects.requireNonNull(siteSurface, "siteSurface");
 
         TerrainSnapshot snapshot = leveling.snapshot();
         Inventory inventory = inventory(snapshot);
@@ -175,6 +180,15 @@ final class TreeCleanupPlanner {
                         TerrainWrite.Kind.VEGETATION_CLEAR));
             }
         }
+        List<TerrainWrite> trunkGroundWrites = trunkGroundWrites(
+                snapshot,
+                selectedLogs,
+                leveling.plan(),
+                targetsByColumn,
+                occupiedWritePositions,
+                templatePositions,
+                siteSurface);
+        writes.addAll(trunkGroundWrites);
         writes.sort(Comparator.comparing(
                 TerrainWrite::position,
                 POSITION_ORDER));
@@ -182,6 +196,7 @@ final class TreeCleanupPlanner {
                 selectedOwners.size(),
                 cleanupPositions.size(),
                 accessories.size(),
+                trunkGroundWrites.size(),
                 writes);
     }
 
@@ -389,6 +404,12 @@ final class TreeCleanupPlanner {
                 || templatePositions.contains(position)) {
             return true;
         }
+        return reshaped(position, targetsByColumn);
+    }
+
+    private static boolean reshaped(
+            BlockPos position,
+            Map<Long, BlendColumnTarget> targetsByColumn) {
         BlendColumnTarget target = targetsByColumn.get(
                 TerrainSnapshot.pack(
                         position.getX(),
@@ -667,6 +688,66 @@ final class TreeCleanupPlanner {
         }
     }
 
+    /*
+     * Where the blend leaves a column at its height, the ground a removed
+     * trunk stood on would stay bare dirt; it takes the site's surface. A
+     * column the blend reshapes gets its top from the blend, and the
+     * footprint from the template.
+     */
+    private static List<TerrainWrite> trunkGroundWrites(
+            TerrainSnapshot snapshot,
+            Set<BlockPos> selectedLogs,
+            TerrainTransformationPlan leveling,
+            Map<Long, BlendColumnTarget> targetsByColumn,
+            Set<BlockPos> occupiedWritePositions,
+            Set<BlockPos> templatePositions,
+            Block siteSurface) {
+        List<TerrainWrite> writes = new ArrayList<>();
+        for (BlockPos log : sorted(selectedLogs)) {
+            TerrainColumnSnapshot column = snapshot.column(
+                    log.getX(),
+                    log.getZ());
+            BlockPos ground = log.below();
+            if (log.getY() != column.groundY() + 1
+                    || leveling.isFootprintColumn(
+                            log.getX(),
+                            log.getZ())
+                    || reshaped(log, targetsByColumn)
+                    || occupiedWritePositions.contains(ground)
+                    || templatePositions.contains(ground)
+                    || !takesSiteSurface(column, siteSurface)) {
+                continue;
+            }
+            writes.add(new TerrainWrite(
+                    ground,
+                    column.surfaceMaterial(),
+                    siteSurface.defaultBlockState(),
+                    TerrainWrite.Kind.TRUNK_GROUND_RESURFACE));
+        }
+        return writes;
+    }
+
+    /*
+     * Sand or gravel put where the dirt has no terrain under it, such as a
+     * trunk on a thin cave roof, would fall once written, so that dirt stays.
+     */
+    private static boolean takesSiteSurface(
+            TerrainColumnSnapshot column,
+            Block siteSurface) {
+        if (!TerrainSurfaceClassifier.isTrunkGround(
+                        column.surfaceMaterial(),
+                        column.stateAboveGround())
+                || column.surfaceMaterial().is(siteSurface)) {
+            return false;
+        }
+        int belowY = column.groundY() - 1;
+        return !(siteSurface instanceof FallingBlock)
+                || belowY >= column.minimumCapturedY()
+                        && TerrainSurfaceClassifier.isTerrainMaterial(
+                                column.stateAt(belowY),
+                                TerrainSurfaceClassifier::isVegetation);
+    }
+
     private static boolean touchesHorizontalBoundary(
             PlacementBounds bounds,
             BlockPos position) {
@@ -733,20 +814,23 @@ final class TreeCleanupPlanner {
             int selectedTreeCount,
             int selectedBlockCount,
             int selectedAccessoryCount,
+            int resurfacedTrunkGrounds,
             List<TerrainWrite> writes) {
         Result {
             writes = List.copyOf(writes);
             if (selectedTreeCount < 0
                     || selectedBlockCount < 0
                     || selectedAccessoryCount < 0
-                    || selectedAccessoryCount > selectedBlockCount) {
+                    || selectedAccessoryCount > selectedBlockCount
+                    || resurfacedTrunkGrounds < 0
+                    || resurfacedTrunkGrounds > writes.size()) {
                 throw new IllegalArgumentException(
                         "Tree-cleanup counts must be consistent");
             }
         }
 
         static Result empty() {
-            return new Result(0, 0, 0, List.of());
+            return new Result(0, 0, 0, 0, List.of());
         }
     }
 

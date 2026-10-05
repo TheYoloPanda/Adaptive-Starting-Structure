@@ -539,11 +539,13 @@ public final class PlacementLifecycle {
                 if (blending.plan().selectedTreeCount() > 0) {
                     AdaptiveStartingStructure.LOGGER.info(
                             "Prepared bounded tree cleanup: {} trees, {} tree/accessory blocks selected "
-                                    + "({} attachments), {} additional cleanup writes",
+                                    + "({} attachments), {} additional cleanup writes, "
+                                    + "{} trunk grounds given the site's surface",
                             blending.plan().selectedTreeCount(),
                             blending.plan().selectedTreeBlockCount(),
                             blending.plan().selectedTreeAccessoryCount(),
-                            blending.plan().treeCleanupWrites());
+                            blending.plan().treeCleanupWrites(),
+                            blending.plan().resurfacedTrunkGrounds());
                 }
                 if (blending.plan().restoredSnowLayers() > 0) {
                     AdaptiveStartingStructure.LOGGER.info(
