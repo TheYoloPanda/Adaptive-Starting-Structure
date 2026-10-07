@@ -85,7 +85,9 @@ public final class PlacementLifecycle {
             case FAILED -> blockedOrRecovered(context, blockedFailed(data));
             case AWAITING_DECISION -> {
                 if (!context.supportsPlayerDecision()) {
-                    throw blockedAwaitingDecision();
+                    yield blockedOrRecovered(
+                            context,
+                            blockedAwaitingDecision());
                 }
                 FallbackDecision decision =
                         data.fallbackDecision()

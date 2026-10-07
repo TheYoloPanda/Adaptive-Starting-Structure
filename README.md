@@ -378,6 +378,11 @@ may leave partial terrain or structure changes from the interrupted attempt.
 The state is kept on disk, so setting the key back to `"block"` (the default)
 restores the refusal.
 
+A singleplayer world left waiting for its owner's decision, after every site
+was rejected, also refuses to start on a dedicated server, which cannot show
+that choice. `blockedStateRecovery = "skip"` loads it there as well, without
+the structure and with the vanilla spawn the decision saved.
+
 A start refused because placement failed before anything was written needs no
 recovery: the log says nothing was written, and loading again once the cause
 is fixed builds the structure. With `blockedStateRecovery = "skip"` such a
