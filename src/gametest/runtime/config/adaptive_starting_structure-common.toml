@@ -87,10 +87,11 @@ additionalPreferredBiomes = []
 #Additional biome IDs excluded from site selection.
 additionalExcludedBiomes = []
 #Biome IDs to drop from the built-in preferred list.
-#Unknown IDs are ignored with a warning.
+#IDs the registry or the list does not have, and IDs also added, are named in a warning.
 removedPreferredBiomes = []
 #Biome IDs to drop from the built-in excluded list.
-#Unknown IDs are ignored with a warning.
+#A biome in one of the excludedBiomeTags stays excluded: minecraft:meadow also needs minecraft:is_mountain out of that list.
+#IDs the registry or the list does not have, IDs also added, and IDs a tag still excludes are named in a warning.
 removedExcludedBiomes = []
 #Generated structure IDs whose declared bounds are not trusted when checking whether the starting structure would collide with them.
 #Applied Energistics 2 declares every meteorite as a flat area of 144x144 blocks around a meteorite a few blocks wide, which rejects sites dozens of blocks away from it.

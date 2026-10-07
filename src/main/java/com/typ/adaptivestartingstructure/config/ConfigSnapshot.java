@@ -36,7 +36,8 @@ public record ConfigSnapshot(
         boolean placePlayerAtSpawnMarker,
         Set<ResourceLocation> ignoredStructureCollisions,
         int blendDepthAllowance,
-        boolean adaptTemplateToSite) {
+        boolean adaptTemplateToSite,
+        BiomeListEdits biomeListEdits) {
 
     private static final Set<ResourceLocation> BASE_PREFERRED_BIOMES = resourceLocations(
             "minecraft:plains",
@@ -81,8 +82,8 @@ public record ConfigSnapshot(
     /**
      * A snapshot that refuses to start a world stuck in a blocked state,
      * trusts the declared bounds of every generated structure, holds the
-     * blend ring to the structure's own cut and fill limits and places the
-     * template as authored.
+     * blend ring to the structure's own cut and fill limits, places the
+     * template as authored and was given its biome lists whole.
      */
     public ConfigSnapshot(
             boolean enabled,
@@ -134,11 +135,13 @@ public record ConfigSnapshot(
                 ModConfig.DEFAULT_PLACE_PLAYER_AT_SPAWN_MARKER,
                 Set.of(),
                 0,
-                false);
+                false,
+                BiomeListEdits.NONE);
     }
 
     public ConfigSnapshot {
         Objects.requireNonNull(blockedStateRecovery, "blockedStateRecovery");
+        Objects.requireNonNull(biomeListEdits, "biomeListEdits");
         validateRange("preferredSearchRadius", preferredSearchRadius, 0, ModConfig.MAX_BLOCK_DISTANCE);
         validateRange("maximumSearchRadius", maximumSearchRadius, 0, ModConfig.MAX_BLOCK_DISTANCE);
         validateRange("nearCandidateSpacing", nearCandidateSpacing, 1, ModConfig.MAX_BLOCK_DISTANCE);
@@ -294,26 +297,24 @@ public record ConfigSnapshot(
             List<? extends String> ignoredStructureCollisions,
             int blendDepthAllowance,
             boolean adaptTemplateToSite) {
+        BiomeListEdits.ListEdit preferredEdit = listEdit(
+                BASE_PREFERRED_BIOMES,
+                "additionalPreferredBiomes",
+                additionalPreferredBiomes,
+                "removedPreferredBiomes",
+                removedPreferredBiomes);
+        BiomeListEdits.ListEdit excludedEdit = listEdit(
+                BASE_EXCLUDED_BIOMES,
+                "additionalExcludedBiomes",
+                additionalExcludedBiomes,
+                "removedExcludedBiomes",
+                removedExcludedBiomes);
         Set<ResourceLocation> preferredBiomes = withoutRemoved(
-                mergeAdditional(
-                        "additionalPreferredBiomes",
-                        BASE_PREFERRED_BIOMES,
-                        parseResourceLocations(
-                                "additionalPreferredBiomes",
-                                additionalPreferredBiomes)),
-                parseResourceLocations(
-                        "removedPreferredBiomes",
-                        removedPreferredBiomes));
+                preferredEdit.listed(),
+                preferredEdit.removed());
         Set<ResourceLocation> excludedBiomes = withoutRemoved(
-                mergeAdditional(
-                        "additionalExcludedBiomes",
-                        BASE_EXCLUDED_BIOMES,
-                        parseResourceLocations(
-                                "additionalExcludedBiomes",
-                                additionalExcludedBiomes)),
-                parseResourceLocations(
-                        "removedExcludedBiomes",
-                        removedExcludedBiomes));
+                excludedEdit.listed(),
+                excludedEdit.removed());
         Set<ResourceLocation> allExcludedTags =
                 parseResourceLocations("excludedBiomeTags", excludedBiomeTags);
 
@@ -346,7 +347,22 @@ public record ConfigSnapshot(
                         "ignoredStructureCollisions",
                         ignoredStructureCollisions),
                 blendDepthAllowance,
-                adaptTemplateToSite);
+                adaptTemplateToSite,
+                new BiomeListEdits(preferredEdit, excludedEdit));
+    }
+
+    private static BiomeListEdits.ListEdit listEdit(
+            Set<ResourceLocation> builtIn,
+            String additionalKey,
+            List<? extends String> additional,
+            String removedKey,
+            List<? extends String> removed) {
+        Set<ResourceLocation> added =
+                parseResourceLocations(additionalKey, additional);
+        return new BiomeListEdits.ListEdit(
+                mergeAdditional(additionalKey, builtIn, added),
+                added,
+                parseResourceLocations(removedKey, removed));
     }
 
     static boolean isKnownBlockedStateRecovery(Object value) {
@@ -437,9 +453,12 @@ public record ConfigSnapshot(
      * The set without the entries a pack asked to take out.
      *
      * <p>The default biome lists are the mod's opinion, not a rule: a pack that
-     * wants its starting structure in meadows, or never in badlands, has to be
+     * wants its starting structure never in badlands, or in meadows, has to be
      * able to say so, and there is no other way to reach an entry the mod
-     * hardcodes.
+     * hardcodes. Taking an ID out of the excluded list is not enough on its
+     * own when an excluded tag still covers the biome, since the tag decides
+     * first: meadows also need {@code minecraft:is_mountain} out of the
+     * excluded tags.
      */
     private static Set<ResourceLocation> withoutRemoved(
             Set<ResourceLocation> merged,

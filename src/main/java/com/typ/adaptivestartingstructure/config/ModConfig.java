@@ -315,7 +315,8 @@ public final class ModConfig {
             removedPreferredBiomes = builder
                     .comment(
                             "Biome IDs to drop from the built-in preferred list.",
-                            "Unknown IDs are ignored with a warning.")
+                            "IDs the registry or the list does not have, and IDs also added, "
+                                    + "are named in a warning.")
                     .defineListAllowEmpty(
                             "removedPreferredBiomes",
                             List.of(),
@@ -324,7 +325,10 @@ public final class ModConfig {
             removedExcludedBiomes = builder
                     .comment(
                             "Biome IDs to drop from the built-in excluded list.",
-                            "Unknown IDs are ignored with a warning.")
+                            "A biome in one of the excludedBiomeTags stays excluded: minecraft:meadow "
+                                    + "also needs minecraft:is_mountain out of that list.",
+                            "IDs the registry or the list does not have, IDs also added, and IDs a tag "
+                                    + "still excludes are named in a warning.")
                     .defineListAllowEmpty(
                             "removedExcludedBiomes",
                             List.of(),

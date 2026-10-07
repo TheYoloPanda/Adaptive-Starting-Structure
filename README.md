@@ -200,16 +200,24 @@ them, which is the only way to reach an ID the mod hardcodes:
 
 ```toml
 removedExcludedBiomes = ["minecraft:meadow"]
+excludedBiomeTags = ["minecraft:is_ocean", "minecraft:is_river", "minecraft:is_beach"]
 removedPreferredBiomes = ["minecraft:badlands"]
 ```
 
 `excludedBiomeTags` is the whole tag list rather than an addition to a hidden
-one, so a pack edits it directly.
+one, so a pack edits it directly. A biome in an excluded tag stays excluded
+whatever the ID lists say, and the default `minecraft:is_mountain` tag holds
+meadows, so the example leaves that tag out: its other vanilla members, the
+peaks, the snowy slopes and the cherry grove, are on the built-in excluded
+list anyway, while a modded biome kept out only by that tag is let in too.
 
 Biome and tag IDs the server's registry does not have are ignored with a
 warning naming them, so a pack that lists another mod's biome and later drops
 that mod keeps its starting structure. Naming an ID the defaults already list
-is redundant rather than an error.
+is redundant rather than an error. A second warning names the entries that
+change nothing: a removed ID the registry or its list does not have, an ID
+both added and removed, and a preferred biome, or one removed from the
+excluded list, that an excluded tag still covers.
 
 ### Terrain blending and trees
 
