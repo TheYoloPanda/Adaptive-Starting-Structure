@@ -4,6 +4,7 @@ import com.typ.adaptivestartingstructure.AdaptiveStartingStructure;
 import com.typ.adaptivestartingstructure.config.ConfigSnapshot;
 import com.typ.adaptivestartingstructure.config.ModConfig;
 import com.typ.adaptivestartingstructure.config.PlacementSettings;
+import com.typ.adaptivestartingstructure.persistence.FallbackDecision;
 import com.typ.adaptivestartingstructure.persistence.StartingStructurePlan;
 import com.typ.adaptivestartingstructure.persistence.StartingStructureSavedData;
 import com.typ.adaptivestartingstructure.persistence.StartingStructureStorage;
@@ -83,22 +84,30 @@ public final class SpawnPlanningLifecycle {
                     failure);
             return false;
         }
-        Optional<StartingStructurePlan> resumable =
-                resumablePlan(existing, context.worldSeed());
-        if (resumable.isPresent()) {
+        if (existing.isPresent()) {
             /*
              * A previous attempt planned this world and then died before the
-             * level was marked initialized, so planning runs again. Writing
-             * the data file a second time is refused by design, which would
-             * leave the world impossible to create; the plan on disk is still
-             * valid for this seed, so it is used as it stands.
+             * level was marked initialized, which only reaches disk with the
+             * first full save after placement, so this event runs again.
+             * Writing the data file a second time is refused by design and
+             * would make the world crash on every load. Whatever state the
+             * attempt reached is this world's state, and server start decides
+             * from it as it would for an initialized world.
              */
-            StartingStructurePlan plannedEarlier = resumable.get();
-            context.setSpawn(
-                    plannedEarlier.candidate().worldSpawn(),
-                    DEFAULT_SPAWN_ANGLE);
+            StartingStructureSavedData earlier = existing.orElseThrow();
+            long plannedSeed = earlier.plan().selectionSeed();
+            if (plannedSeed != context.worldSeed()) {
+                throw new StartingStructureStartupException(
+                        "Existing starting-structure data was planned for seed "
+                                + plannedSeed
+                                + ", but this world's seed is "
+                                + context.worldSeed()
+                                + "; refusing to plan over it");
+            }
+            BlockPos spawn = savedSpawn(earlier);
+            context.setSpawn(spawn, DEFAULT_SPAWN_ANGLE);
             context.cancelEvent();
-            context.logResumedPlan(plannedEarlier);
+            context.logExistingData(earlier, spawn);
             return true;
         }
 
@@ -126,14 +135,10 @@ public final class SpawnPlanningLifecycle {
         return true;
     }
 
-    private static Optional<StartingStructurePlan> resumablePlan(
-            Optional<StartingStructureSavedData> existing,
-            long worldSeed) {
-        return existing
-                .filter(data -> data.state()
-                        == StartingStructureSavedData.State.PLANNED)
-                .map(StartingStructureSavedData::plan)
-                .filter(plan -> plan.selectionSeed() == worldSeed);
+    private static BlockPos savedSpawn(StartingStructureSavedData data) {
+        return data.fallbackDecision()
+                .map(FallbackDecision::vanillaSpawn)
+                .orElse(data.plan().candidate().worldSpawn());
     }
 
     private static final class EventContext implements SpawnPlanningContext {
@@ -271,14 +276,18 @@ public final class SpawnPlanningLifecycle {
         }
 
         @Override
-        public void logResumedPlan(StartingStructurePlan plan) {
+        public void logExistingData(
+                StartingStructureSavedData data,
+                BlockPos spawn) {
             AdaptiveStartingStructure.LOGGER.warn(
-                    "Reusing the starting-structure plan for '{}' at {} with world spawn {} "
+                    "Found starting-structure data in state {} for '{}' at {} "
                             + "left by an earlier creation attempt of this world; "
-                            + "planning is skipped and the stored site is kept.",
-                    plan.candidate().structureId(),
-                    plan.candidate().placementOrigin(),
-                    plan.candidate().worldSpawn());
+                            + "planning is skipped, the world spawn is set back to {} "
+                            + "and the saved state decides at server start.",
+                    data.state(),
+                    data.plan().candidate().structureId(),
+                    data.plan().candidate().placementOrigin(),
+                    spawn);
         }
     }
 }

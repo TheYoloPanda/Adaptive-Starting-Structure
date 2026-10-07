@@ -42,5 +42,7 @@ interface SpawnPlanningContext {
             StartingStructurePlan plan,
             long planningElapsedNanos);
 
-    void logResumedPlan(StartingStructurePlan plan);
+    void logExistingData(
+            StartingStructureSavedData data,
+            BlockPos spawn);
 }
