@@ -132,7 +132,7 @@ public final class PlacementLifecycle {
         try {
             config = context.loadConfig();
         } catch (Exception failure) {
-            failBeforeWorldWrites(context, data, failure);
+            keepPlannedOrFail(context, data, failure);
             throw failure;
         }
         config = planningTimeConfig(config, data.plan());
@@ -153,7 +153,7 @@ public final class PlacementLifecycle {
                         data,
                         StartingStructureSavedData.State.PLACING);
             } catch (Exception failure) {
-                failBeforeWorldWrites(context, data, failure);
+                keepPlannedOrFail(context, data, failure);
                 throw failure;
             }
 
@@ -213,7 +213,7 @@ public final class PlacementLifecycle {
                             data.advancePastCurrentSite();
                 } catch (Exception retryFailure) {
                     retryFailure.addSuppressed(failure);
-                    failBeforeWorldWrites(
+                    keepPlannedOrFail(
                             context,
                             data,
                             retryFailure);
@@ -232,7 +232,7 @@ public final class PlacementLifecycle {
                         } catch (Exception fallbackFailure) {
                             fallbackFailure.addSuppressed(
                                     failure);
-                            failBeforeWorldWrites(
+                            keepPlannedOrFail(
                                     context,
                                     data,
                                     fallbackFailure);
@@ -250,7 +250,7 @@ public final class PlacementLifecycle {
                         } catch (Exception persistenceFailure) {
                             persistenceFailure.addSuppressed(
                                     failure);
-                            failBeforeWorldWrites(
+                            keepPlannedOrFail(
                                     context,
                                     data,
                                     persistenceFailure);
@@ -260,7 +260,8 @@ public final class PlacementLifecycle {
                         context.logAwaitingDecision(decision);
                         return Optional.empty();
                     }
-                    failBeforeWorldWrites(
+                    // Every site failed on terrain a later start would generate again.
+                    persistFailed(
                             context,
                             data,
                             failure);
@@ -271,7 +272,7 @@ public final class PlacementLifecycle {
                     context.persistState(data);
                 } catch (Exception retryFailure) {
                     retryFailure.addSuppressed(failure);
-                    failBeforeWorldWrites(
+                    keepPlannedOrFail(
                             context,
                             data,
                             retryFailure);
@@ -285,7 +286,7 @@ public final class PlacementLifecycle {
                         data.plan().alternativeCandidates().size(),
                         failure.getMessage());
             } catch (Exception failure) {
-                failBeforeWorldWrites(
+                keepPlannedOrFail(
                         context,
                         data,
                         failure);
@@ -314,7 +315,34 @@ public final class PlacementLifecycle {
         context.logTransition(previous, target);
     }
 
-    private static void failBeforeWorldWrites(
+    /**
+     * Ends an attempt that failed before any world write. Nothing in the
+     * world needs recovering, and causes such as an invalid configuration or
+     * a template changed since the world was created can be fixed, so the
+     * state on disk stays PLANNED and the next start retries; marking it
+     * FAILED would refuse every later start of a world nothing was written
+     * to. An admin who skips blocked worlds gets the structure given up
+     * instead, since a cause that is never fixed would otherwise refuse
+     * every start as well.
+     */
+    private static void keepPlannedOrFail(
+            PlacementLifecycleContext context,
+            StartingStructureSavedData data,
+            Exception failure) {
+        if (context.blockedStateRecovery() == BlockedStateRecovery.SKIP) {
+            persistFailed(context, data, failure);
+            return;
+        }
+        /*
+         * The game saves dirty SavedData on its own, which would write what
+         * this attempt changed in memory, such as PLACING after a failed write
+         * of it, and refuse the next start after all.
+         */
+        data.setDirty(false);
+        context.logPlannedKept();
+    }
+
+    private static void persistFailed(
             PlacementLifecycleContext context,
             StartingStructureSavedData data,
             Exception originalFailure) {
@@ -491,6 +519,15 @@ public final class PlacementLifecycle {
                             + "terrain or structure changes from the interrupted attempt.",
                     BlockedStateRecovery.SKIP.configValue(),
                     blockedReason);
+        }
+
+        @Override
+        public void logPlannedKept() {
+            AdaptiveStartingStructure.LOGGER.warn(
+                    "Starting-structure placement failed before anything was written to the world; "
+                            + "the saved state stays PLANNED and the next start retries once the cause is fixed. "
+                            + "Set blockedStateRecovery to '{}' to give the structure up instead.",
+                    BlockedStateRecovery.SKIP.configValue());
         }
 
         @Override

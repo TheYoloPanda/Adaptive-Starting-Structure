@@ -52,6 +52,8 @@ interface PlacementLifecycleContext {
 
     void logBlockedStateRecovery(String blockedReason);
 
+    void logPlannedKept();
+
     void logTransition(
             StartingStructureSavedData.State from,
             StartingStructureSavedData.State to);

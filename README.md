@@ -323,6 +323,12 @@ Settings that play no part in choosing a site, such as
 `placeTemplateEntities`, `adaptTemplateToSite`, `ignoredStructureCollisions`
 and `blendDepthAllowance`, keep following the live configuration.
 
+If that first load fails before anything is written to the world, for example
+because the configuration file is invalid or the selected template is missing
+or has changed since the world was created, the start is refused but the world
+stays planned. It loads normally, and gets its structure, once the cause is
+fixed.
+
 ### Recovering a world that refuses to start
 
 If the game dies while the structure is being built, the saved state stays at
@@ -337,3 +343,9 @@ The starting structure is then given up on and the world loads as it is, which
 may leave partial terrain or structure changes from the interrupted attempt.
 The state is kept on disk, so setting the key back to `"block"` (the default)
 restores the refusal.
+
+A start refused because placement failed before anything was written needs no
+recovery: the log says nothing was written, and loading again once the cause
+is fixed builds the structure. With `blockedStateRecovery = "skip"` such a
+failure gives the structure up instead: it is marked failed, and the next
+start loads the world without it.
