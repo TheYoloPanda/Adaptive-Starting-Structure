@@ -38,6 +38,14 @@ public final class PlacementFailureNotifier {
             return;
         }
         PENDING.find(server).ifPresent(notice -> {
+            try {
+                SpawnMarkerPlacement.markRefusedSession(player);
+            } catch (RuntimeException failure) {
+                AdaptiveStartingStructure.LOGGER.error(
+                        "Failed to mark player '{}' as having joined a refused session",
+                        player.getGameProfile().getName(),
+                        failure);
+            }
             AdaptiveStartingStructure.LOGGER.warn(
                     "Disconnecting player '{}' because starting-structure placement failed",
                     player.getGameProfile().getName());

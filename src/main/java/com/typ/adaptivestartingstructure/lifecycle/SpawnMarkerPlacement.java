@@ -35,6 +35,8 @@ import net.neoforged.neoforge.event.entity.player.PlayerRespawnPositionEvent;
  */
 public final class SpawnMarkerPlacement {
     static final String PLACED_KEY = "AdaptiveStartingStructurePlaced";
+    static final String REFUSED_SESSION_KEY =
+            "AdaptiveStartingStructureRefusedSession";
 
     private SpawnMarkerPlacement() {
     }
@@ -65,10 +67,55 @@ public final class SpawnMarkerPlacement {
                 && Math.abs(playerPosition.getZ() - marker.getZ()) <= reach;
     }
 
+    /**
+     * Whether a player let into a session that was refused before the
+     * structure stood arrives again as a new player. Only once it stands:
+     * until then there is nothing to arrive at, and the next start may still
+     * build it anywhere.
+     */
+    static boolean arrivesAgain(
+            CompoundTag persistentData,
+            Optional<StartingStructureSavedData.State> state) {
+        return persistentData.getCompound(Player.PERSISTED_NBT_TAG)
+                        .getBoolean(REFUSED_SESSION_KEY)
+                && state.filter(current -> current
+                                == StartingStructureSavedData.State.COMPLETE)
+                        .isPresent();
+    }
+
+    /**
+     * Marks a player let into a session that is about to be refused. The game
+     * saves them where it put them on the terrain as it was, and the start
+     * that builds the structure may build it at another site, beyond the
+     * reach of the move onto the marker.
+     */
+    static void markRefusedSession(ServerPlayer player) {
+        markRefusedSession(player.getPersistentData());
+    }
+
+    static void markRefusedSession(CompoundTag persistentData) {
+        CompoundTag persisted =
+                persistentData.getCompound(Player.PERSISTED_NBT_TAG);
+        persisted.putBoolean(REFUSED_SESSION_KEY, true);
+        persistentData.put(Player.PERSISTED_NBT_TAG, persisted);
+    }
+
+    static void clearRefusedSession(CompoundTag persistentData) {
+        persistentData.getCompound(Player.PERSISTED_NBT_TAG)
+                .remove(REFUSED_SESSION_KEY);
+    }
+
     public static void onPlayerLoggedIn(
             PlayerEvent.PlayerLoggedInEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) {
             return;
+        }
+        try {
+            arriveAgainAfterRefusedSession(player);
+        } catch (RuntimeException failure) {
+            AdaptiveStartingStructure.LOGGER.error(
+                    "Failed to bring a player from a refused session to the world spawn",
+                    failure);
         }
         if (hasBeenPlaced(player)) {
             return;
@@ -143,6 +190,46 @@ public final class SpawnMarkerPlacement {
                     "Failed to respawn a player on the starting structure's spawn marker",
                     failure);
         }
+    }
+
+    /*
+     * Placed where the game puts a player it has never seen, whatever
+     * placePlayerAtSpawnMarker says; the move onto the marker then treats
+     * the player as arriving, as it would have on a first load that worked.
+     */
+    private static void arriveAgainAfterRefusedSession(ServerPlayer player) {
+        CompoundTag persistentData = player.getPersistentData();
+        if (!persistentData.getCompound(Player.PERSISTED_NBT_TAG)
+                .getBoolean(REFUSED_SESSION_KEY)) {
+            return;
+        }
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return;
+        }
+        ServerLevel overworld = server.overworld();
+        Optional<StartingStructureSavedData.State> state =
+                StartingStructureStorage.load(overworld)
+                        .map(StartingStructureSavedData::state);
+        if (!arrivesAgain(persistentData, state)) {
+            return;
+        }
+        BlockPos arrival = player.adjustSpawnLocation(
+                overworld,
+                overworld.getSharedSpawnPos());
+        player.teleportTo(
+                overworld,
+                arrival.getX() + 0.5D,
+                arrival.getY(),
+                arrival.getZ() + 0.5D,
+                0.0F,
+                0.0F);
+        clearRefusedSession(persistentData);
+        AdaptiveStartingStructure.LOGGER.info(
+                "Moved {}, who joined a session refused before the starting structure was built, "
+                        + "to the world spawn at {}",
+                player.getGameProfile().getName(),
+                arrival);
     }
 
     /** The marker of a structure that is actually standing in this world. */

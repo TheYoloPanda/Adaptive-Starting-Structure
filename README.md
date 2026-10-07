@@ -371,7 +371,9 @@ If that first load fails before anything is written to the world, for example
 because the configuration file is invalid or the selected template is missing
 or has changed since the world was created, the start is refused but the world
 stays planned. It loads normally, and gets its structure, once the cause is
-fixed.
+fixed. A player who joined the refused session then arrives again where the
+game puts a new player, and on the spawn marker when `placePlayerAtSpawnMarker`
+is on, not where that session left them.
 
 ### Recovering a world that refuses to start
 
