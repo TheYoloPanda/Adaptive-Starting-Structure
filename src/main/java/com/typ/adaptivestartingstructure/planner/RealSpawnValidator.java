@@ -60,7 +60,7 @@ public final class RealSpawnValidator {
                 world);
     }
 
-    static SpawnValidationResult validate(
+    public static SpawnValidationResult validate(
             int configuredRadius,
             BlockPos spawnFeet,
             StructureBounds safeBounds,

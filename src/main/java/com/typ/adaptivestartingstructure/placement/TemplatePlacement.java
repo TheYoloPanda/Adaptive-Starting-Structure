@@ -34,25 +34,37 @@ public final class TemplatePlacement {
                     "Terrain context does not match prepared placement");
         }
 
-        TemplatePlacementPlan plan =
-                TemplatePlacementPlanner.plan(
-                        level::getBlockState,
-                        prepared.savedData().plan(),
-                        prepared.definition(),
-                        prepared.structure(),
-                        prepared.bounds(),
-                        config.adaptTemplateToSite()
-                                ? new TemplateSiteAdaptation.Site(
-                                        TemplateSiteAdaptation.materials(
-                                                terrain.leveling().snapshot(),
-                                                prepared.bounds()),
-                                        SnowCoverPlanner.climateOf(level))
-                                : TemplateSiteAdaptation.Site.AS_AUTHORED);
+        TemplatePlacementPlan plan = plan(
+                level::getBlockState,
+                prepared,
+                terrain.leveling().snapshot(),
+                config);
         int applied =
                 TemplatePlacementApplier.apply(level, plan);
         return new TemplatePlacementResult(
                 terrain,
                 plan,
                 applied);
+    }
+
+    /** Shared with the pre-write spawn check, so the blocks it judges are the ones placement writes. */
+    static TemplatePlacementPlan plan(
+            TemplatePlacementPlanner.BlockStateReader world,
+            PreparedPlacement prepared,
+            TerrainSnapshot terrain,
+            ConfigSnapshot config) {
+        return TemplatePlacementPlanner.plan(
+                world,
+                prepared.savedData().plan(),
+                prepared.definition(),
+                prepared.structure(),
+                prepared.bounds(),
+                config.adaptTemplateToSite()
+                        ? new TemplateSiteAdaptation.Site(
+                                TemplateSiteAdaptation.materials(
+                                        terrain,
+                                        prepared.bounds()),
+                                SnowCoverPlanner.climateOf(prepared.level()))
+                        : TemplateSiteAdaptation.Site.AS_AUTHORED);
     }
 }

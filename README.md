@@ -135,6 +135,11 @@ excessive falling distance. It does not require the entire vanilla
 `spawnRadius` square to be safe, so an intentionally underground spawn does not
 prevent the structure from being selected.
 
+Before anything is written, the spawn is checked on the generated world with
+the planned terrain and template changes in place: a site where it would
+stand over a cave, water or lava that the template does not cover is skipped
+for the next one.
+
 Set the following common config option to `true` only if every possible vanilla
 spawn column in the full `spawnRadius` area must pass the same checks:
 

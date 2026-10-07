@@ -11,6 +11,7 @@ import com.typ.adaptivestartingstructure.persistence.StartingStructureSavedData;
 import com.typ.adaptivestartingstructure.persistence.StartingStructureStorage;
 import com.typ.adaptivestartingstructure.placement.GeneratedStructureCollisionValidator;
 import com.typ.adaptivestartingstructure.placement.PlacementPreparation;
+import com.typ.adaptivestartingstructure.placement.PreWriteSpawnValidator;
 import com.typ.adaptivestartingstructure.placement.PreparedPlacement;
 import com.typ.adaptivestartingstructure.placement.PreparedTerrainBlending;
 import com.typ.adaptivestartingstructure.placement.PreparedTerrainLeveling;
@@ -573,6 +574,10 @@ public final class PlacementLifecycle {
                             "{}; ignored because ignoredStructureCollisions lists it",
                             ignoredCollision);
                 }
+                PreWriteSpawnValidator.validate(
+                        prepared,
+                        blending,
+                        config);
                 if (blending.plan().selectedTreeCount() > 0) {
                     AdaptiveStartingStructure.LOGGER.info(
                             "Prepared bounded tree cleanup: {} trees, {} tree/accessory blocks selected "

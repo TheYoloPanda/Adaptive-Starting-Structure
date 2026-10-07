@@ -274,14 +274,23 @@ final class TemplateEntityPlacementPlanner {
                                 placementNbt));
             }
 
-            return new PreparedTemplateEntities(
-                    new TemplateEntityPlacementPlan(
-                            structureId,
-                            sourceEntities.size(),
-                            0,
-                            entries,
-                            skipped),
-                    materialized);
+            PreparedTemplateEntities prepared =
+                    new PreparedTemplateEntities(
+                            new TemplateEntityPlacementPlan(
+                                    structureId,
+                                    sourceEntities.size(),
+                                    0,
+                                    entries,
+                                    skipped),
+                            materialized);
+            /*
+             * Two attachments sharing a spot depend on the template alone,
+             * so they are refused before any write rather than after the
+             * terrain and the template are in.
+             */
+            TemplateEntityPlacementApplier.validateAttachmentConflicts(
+                    prepared);
+            return prepared;
         } catch (RuntimeException | Error failure) {
             discardAll(
                     materialized,

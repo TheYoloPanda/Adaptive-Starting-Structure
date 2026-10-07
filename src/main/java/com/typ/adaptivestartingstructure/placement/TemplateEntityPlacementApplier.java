@@ -8,7 +8,7 @@ final class TemplateEntityPlacementApplier {
     private TemplateEntityPlacementApplier() {
     }
 
-    static void validateAttachments(
+    static void validateAttachmentSurvival(
             PreparedTemplateEntities prepared) {
         for (int index = 0;
                 index < prepared.size();
@@ -23,7 +23,10 @@ final class TemplateEntityPlacementApplier {
                         "failed its final attachment survival check");
             }
         }
+    }
 
+    static void validateAttachmentConflicts(
+            PreparedTemplateEntities prepared) {
         for (int firstIndex = 0;
                 firstIndex < prepared.size();
                 firstIndex++) {

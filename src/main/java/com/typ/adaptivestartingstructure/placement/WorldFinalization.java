@@ -92,7 +92,10 @@ public final class WorldFinalization {
         PreparedTemplateEntities preparedEntities =
                 prepared.entities();
         TemplateEntityPlacementApplier
-                .validateAttachments(
+                .validateAttachmentSurvival(
+                        preparedEntities);
+        TemplateEntityPlacementApplier
+                .validateAttachmentConflicts(
                         preparedEntities);
         TemplateEntityPlacementMetrics entityMetrics =
                 TemplateEntityPlacementApplier.addAll(
