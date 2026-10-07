@@ -203,6 +203,10 @@ public final class SpawnPlanningLifecycle {
                     selected,
                     config,
                     level.enabledFeatures());
+            PlacementPreparation.validateTemplateAttachments(
+                    selected,
+                    config,
+                    level);
             PlannerQueryContext queries =
                     PlannerQueryContext.create(level, config);
             SitePlanningResult result = SitePlanner.plan(

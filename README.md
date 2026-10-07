@@ -89,15 +89,17 @@ Missing, malformed, unavailable, feature-disabled, non-serializable, or
 unloadable entity entries are skipped with a warning that identifies the
 template and source index. Player entities and passenger trees are rejected.
 Enabled placement also rejects templates exceeding 128 root entities, 4 MiB of
-aggregate uncompressed entity NBT, or NBT nesting depth 64. Entity-addition
-failure after block placement is fail-closed and prevents the world from being
-marked complete.
+aggregate uncompressed entity NBT, or NBT nesting depth 64, and templates with
+two block-attached entities on one anchor or with overlapping boxes.
+Entity-addition failure after block placement is fail-closed and prevents the
+world from being marked complete.
 
 With the option on when a world is created, a template breaking one of these
 rules is rejected before the world is changed: the world keeps the vanilla
-spawn and the planning notice names the rule, as for an invalid template.
-Turning the option on for a world that is already planned leaves the check to
-its first load.
+spawn and the planning notice names the rule, as for an invalid template. For
+the block-attached rule the template's entities are created, never added to
+the world, and discarded. Turning the option on for a world that is already
+planned leaves the check to its first load.
 
 ### Fitting the template to the site
 

@@ -12,6 +12,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -136,124 +137,26 @@ final class TemplateEntityPlacementPlanner {
                         anchor,
                         bounds);
 
-                Entity entity;
-                try {
-                    entity = type.create(level);
-                } catch (RuntimeException failure) {
+                Materialization materialization =
+                        materialize(
+                                entityType -> entityType.create(level),
+                                structureId,
+                                source,
+                                type,
+                                structure.rotation(),
+                                worldPosition,
+                                anchor);
+                if (materialization.skipped()) {
                     skip(
                             structureId,
                             source,
                             skipped,
-                            failureReason(
-                                    "entity factory failed",
-                                    failure),
-                            failure);
+                            materialization.skipReason(),
+                            materialization.failure());
                     continue;
                 }
-                if (entity == null) {
-                    skip(
-                            structureId,
-                            source,
-                            skipped,
-                            "entity factory returned null",
-                            null);
-                    continue;
-                }
-                if (entity instanceof Player) {
-                    discardForFatal(
-                            entity,
-                            null);
-                    throw fatal(
-                            structureId,
-                            source,
-                            "materialized entity is a Player subclass");
-                }
-                if (entity.getType() != type) {
-                    discardForSkip(
-                            entity,
-                            null,
-                            structureId,
-                            source);
-                    skip(
-                            structureId,
-                            source,
-                            skipped,
-                            "entity factory returned a different registry type",
-                            null);
-                    continue;
-                }
-
-                CompoundTag placementNbt =
-                        source.copyNbt();
-                placementNbt.put(
-                        "Pos",
-                        doubleList(worldPosition));
-                placementNbt.remove("UUID");
-                if (entity
-                        instanceof BlockAttachedEntity) {
-                    placementNbt.putInt(
-                            "TileX",
-                            anchor.getX());
-                    placementNbt.putInt(
-                            "TileY",
-                            anchor.getY());
-                    placementNbt.putInt(
-                            "TileZ",
-                            anchor.getZ());
-                }
-
-                try {
-                    entity.load(placementNbt);
-                    float yaw =
-                            entity.rotate(
-                                    structure.rotation());
-                    yaw += entity.mirror(Mirror.NONE)
-                            - entity.getYRot();
-                    float pitch =
-                            entity.getXRot();
-                    if (entity
-                            instanceof BlockAttachedEntity attached) {
-                        attached.setYRot(yaw);
-                        attached.setXRot(pitch);
-                        attached.setPos(
-                                anchor.getX(),
-                                anchor.getY(),
-                                anchor.getZ());
-                        attached.setOldPosAndRot();
-                        if (!attached.getPos()
-                                .equals(anchor)) {
-                            throw new IllegalStateException(
-                                    "block-attached entity did not retain its transformed anchor");
-                        }
-                    } else {
-                        entity.moveTo(
-                                worldPosition.x,
-                                worldPosition.y,
-                                worldPosition.z,
-                                yaw,
-                                pitch);
-                    }
-                    if (entity.isRemoved()
-                            || entity.isAddedToLevel()) {
-                        throw new IllegalStateException(
-                                "materialized entity is not detached and live");
-                    }
-                } catch (RuntimeException failure) {
-                    discardForSkip(
-                            entity,
-                            failure,
-                            structureId,
-                            source);
-                    skip(
-                            structureId,
-                            source,
-                            skipped,
-                            failureReason(
-                                    "entity NBT load or placement preparation failed",
-                                    failure),
-                            failure);
-                    continue;
-                }
+                Entity entity =
+                        materialization.entity();
 
                 materialized.add(entity);
                 validateMaterializedGeometry(
@@ -271,7 +174,7 @@ final class TemplateEntityPlacementPlanner {
                                 type,
                                 worldPosition,
                                 anchor,
-                                placementNbt));
+                                materialization.placementNbt()));
             }
 
             PreparedTemplateEntities prepared =
@@ -343,6 +246,237 @@ final class TemplateEntityPlacementPlanner {
                 }
             }
         }
+    }
+
+    /**
+     * Refuses a template two of whose block-attached entities would share an
+     * anchor or overlap on every site. Only the entities themselves can tell,
+     * so the entries placement would place are materialized detached, as
+     * placement does it, at the template's own coordinates in every allowed
+     * rotation, compared, and discarded. An entry placement would skip is
+     * skipped here as well, without a warning: placement gives that one.
+     */
+    static void validateAttachmentConflicts(
+            StructureDefinition definition,
+            List<Rotation> rotations,
+            FeatureFlagSet enabledFeatures,
+            Function<EntityType<?>, Entity> entityFactory) {
+        for (Rotation rotation : rotations) {
+            try (PreparedTemplateEntities prepared =
+                    materializeInTemplateCoordinates(
+                            definition,
+                            rotation,
+                            enabledFeatures,
+                            entityFactory)) {
+                TemplateEntityPlacementApplier.validateAttachmentConflicts(
+                        prepared);
+            }
+        }
+    }
+
+    private static PreparedTemplateEntities materializeInTemplateCoordinates(
+            StructureDefinition definition,
+            Rotation rotation,
+            FeatureFlagSet enabledFeatures,
+            Function<EntityType<?>, Entity> entityFactory) {
+        String structureId =
+                definition.source().id();
+        List<StructureEntityData> sourceEntities =
+                definition.entities();
+        List<TemplateEntityPlacementEntry> entries =
+                new ArrayList<>(sourceEntities.size());
+        List<TemplateEntitySkip> skipped =
+                new ArrayList<>();
+        List<Entity> materialized =
+                new ArrayList<>(sourceEntities.size());
+        try {
+            for (StructureEntityData source
+                    : sourceEntities) {
+                SourceEntityType classified =
+                        classify(
+                                structureId,
+                                source,
+                                enabledFeatures);
+                if (classified.skipped()) {
+                    skipped.add(new TemplateEntitySkip(
+                            source.sourceIndex(),
+                            source.authoredId(),
+                            classified.skipReason()));
+                    continue;
+                }
+                Vec3 position =
+                        StructureTransforms.transform(
+                                source.position(),
+                                definition.size(),
+                                rotation);
+                BlockPos anchor =
+                        StructureTransforms.transform(
+                                source.blockPosition(),
+                                definition.size(),
+                                rotation);
+                Materialization materialization =
+                        materialize(
+                                entityFactory,
+                                structureId,
+                                source,
+                                classified.type(),
+                                rotation,
+                                position,
+                                anchor);
+                if (materialization.skipped()) {
+                    skipped.add(new TemplateEntitySkip(
+                            source.sourceIndex(),
+                            source.authoredId(),
+                            materialization.skipReason()));
+                    continue;
+                }
+                materialized.add(
+                        materialization.entity());
+                entries.add(
+                        new TemplateEntityPlacementEntry(
+                                source.sourceIndex(),
+                                classified.typeId(),
+                                classified.type(),
+                                position,
+                                anchor,
+                                materialization.placementNbt()));
+            }
+            return new PreparedTemplateEntities(
+                    new TemplateEntityPlacementPlan(
+                            structureId,
+                            sourceEntities.size(),
+                            0,
+                            entries,
+                            skipped),
+                    materialized);
+        } catch (RuntimeException | Error failure) {
+            discardAll(
+                    materialized,
+                    failure);
+            throw failure;
+        }
+    }
+
+    /**
+     * One entry as a detached entity standing at its transformed place, or
+     * the reason placement skips it. A failure after the entity exists
+     * discards it before returning.
+     */
+    private static Materialization materialize(
+            Function<EntityType<?>, Entity> entityFactory,
+            String structureId,
+            StructureEntityData source,
+            EntityType<?> type,
+            Rotation rotation,
+            Vec3 worldPosition,
+            BlockPos anchor) {
+        Entity entity;
+        try {
+            entity = entityFactory.apply(type);
+        } catch (RuntimeException failure) {
+            return Materialization.skippedBecause(
+                    failureReason(
+                            "entity factory failed",
+                            failure),
+                    failure);
+        }
+        if (entity == null) {
+            return Materialization.skippedBecause(
+                    "entity factory returned null",
+                    null);
+        }
+        if (entity instanceof Player) {
+            discardForFatal(
+                    entity,
+                    null);
+            throw fatal(
+                    structureId,
+                    source,
+                    "materialized entity is a Player subclass");
+        }
+        if (entity.getType() != type) {
+            discardForSkip(
+                    entity,
+                    null,
+                    structureId,
+                    source);
+            return Materialization.skippedBecause(
+                    "entity factory returned a different registry type",
+                    null);
+        }
+
+        CompoundTag placementNbt =
+                source.copyNbt();
+        placementNbt.put(
+                "Pos",
+                doubleList(worldPosition));
+        placementNbt.remove("UUID");
+        if (entity
+                instanceof BlockAttachedEntity) {
+            placementNbt.putInt(
+                    "TileX",
+                    anchor.getX());
+            placementNbt.putInt(
+                    "TileY",
+                    anchor.getY());
+            placementNbt.putInt(
+                    "TileZ",
+                    anchor.getZ());
+        }
+
+        try {
+            entity.load(placementNbt);
+            float yaw =
+                    entity.rotate(
+                            rotation);
+            yaw += entity.mirror(Mirror.NONE)
+                    - entity.getYRot();
+            float pitch =
+                    entity.getXRot();
+            if (entity
+                    instanceof BlockAttachedEntity attached) {
+                attached.setYRot(yaw);
+                attached.setXRot(pitch);
+                attached.setPos(
+                        anchor.getX(),
+                        anchor.getY(),
+                        anchor.getZ());
+                attached.setOldPosAndRot();
+                if (!attached.getPos()
+                        .equals(anchor)) {
+                    throw new IllegalStateException(
+                            "block-attached entity did not retain its transformed anchor");
+                }
+            } else {
+                entity.moveTo(
+                        worldPosition.x,
+                        worldPosition.y,
+                        worldPosition.z,
+                        yaw,
+                        pitch);
+            }
+            if (entity.isRemoved()
+                    || entity.isAddedToLevel()) {
+                throw new IllegalStateException(
+                        "materialized entity is not detached and live");
+            }
+        } catch (RuntimeException failure) {
+            discardForSkip(
+                    entity,
+                    failure,
+                    structureId,
+                    source);
+            return Materialization.skippedBecause(
+                    failureReason(
+                            "entity NBT load or placement preparation failed",
+                            failure),
+                    failure);
+        }
+        return new Materialization(
+                entity,
+                placementNbt,
+                null,
+                null);
     }
 
     static SourceEntityType classify(
@@ -833,6 +967,26 @@ final class TemplateEntityPlacementPlanner {
                     null,
                     null,
                     reason);
+        }
+
+        boolean skipped() {
+            return skipReason != null;
+        }
+    }
+
+    private record Materialization(
+            Entity entity,
+            CompoundTag placementNbt,
+            String skipReason,
+            RuntimeException failure) {
+        private static Materialization skippedBecause(
+                String reason,
+                RuntimeException failure) {
+            return new Materialization(
+                    null,
+                    null,
+                    reason,
+                    failure);
         }
 
         boolean skipped() {

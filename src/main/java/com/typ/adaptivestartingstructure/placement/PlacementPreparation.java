@@ -157,6 +157,29 @@ public final class PlacementPreparation {
         }
     }
 
+    /**
+     * Refuses a template two of whose block-attached entities would conflict
+     * wherever it landed. Unlike the rules {@link #validateTemplate} checks,
+     * this one needs the entities themselves, and creating them needs the
+     * level.
+     */
+    public static void validateTemplateAttachments(
+            StructureDefinition definition,
+            ConfigSnapshot config,
+            ServerLevel level) {
+        Objects.requireNonNull(definition, "definition");
+        Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(level, "level");
+        if (!config.placeTemplateEntities()) {
+            return;
+        }
+        TemplateEntityPlacementPlanner.validateAttachmentConflicts(
+                definition,
+                config.allowedRotations(),
+                level.enabledFeatures(),
+                type -> type.create(level));
+    }
+
     static RotatedStructureView validateAssetAndGeometry(
             StartingStructurePlan plan,
             StructureDefinition definition,
