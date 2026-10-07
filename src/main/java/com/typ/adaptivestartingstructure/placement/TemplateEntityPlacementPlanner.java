@@ -26,14 +26,20 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.decoration.BlockAttachedEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.flag.FeatureFlagSet;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Mirror;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 final class TemplateEntityPlacementPlanner {
     static final int MAX_DIAGNOSTIC_TEXT_LENGTH = 128;
+    private static final String PLAYER_FORBIDDEN =
+            "player entities are forbidden";
+    private static final String ANCHOR_OUTSIDE_STRUCTURE =
+            "transformed block anchor is outside the structure bounds";
 
     private TemplateEntityPlacementPlanner() {
     }
@@ -87,76 +93,24 @@ final class TemplateEntityPlacementPlanner {
         try {
             for (StructureEntityData source
                     : sourceEntities) {
-                Optional<String> authoredId =
-                        source.authoredId();
-                if (authoredId.isEmpty()) {
+                SourceEntityType classified =
+                        classify(
+                                structureId,
+                                source,
+                                level.enabledFeatures());
+                if (classified.skipped()) {
                     skip(
                             structureId,
                             source,
                             skipped,
-                            "missing or non-string nbt.id",
+                            classified.skipReason(),
                             null);
                     continue;
                 }
                 ResourceLocation typeId =
-                        ResourceLocation.tryParse(
-                                authoredId.orElseThrow());
-                if (typeId == null) {
-                    skip(
-                            structureId,
-                            source,
-                            skipped,
-                            "malformed nbt.id",
-                            null);
-                    continue;
-                }
-                if (typeId.equals(
-                        EntityType.getKey(
-                                EntityType.PLAYER))) {
-                    throw fatal(
-                            structureId,
-                            source,
-                            "player entities are forbidden");
-                }
-
+                        classified.typeId();
                 EntityType<?> type =
-                        BuiltInRegistries.ENTITY_TYPE
-                                .getOptional(typeId)
-                                .orElse(null);
-                if (type == null) {
-                    skip(
-                            structureId,
-                            source,
-                            skipped,
-                            "entity type is not registered",
-                            null);
-                    continue;
-                }
-                if (type == EntityType.PLAYER) {
-                    throw fatal(
-                            structureId,
-                            source,
-                            "player entities are forbidden");
-                }
-                if (!type.isEnabled(
-                        level.enabledFeatures())) {
-                    skip(
-                            structureId,
-                            source,
-                            skipped,
-                            "entity type is disabled by the level feature flags",
-                            null);
-                    continue;
-                }
-                if (!type.canSerialize()) {
-                    skip(
-                            structureId,
-                            source,
-                            skipped,
-                            "entity type is not serializable",
-                            null);
-                    continue;
-                }
+                        classified.type();
 
                 Vec3 worldPosition =
                         offset(
@@ -336,6 +290,107 @@ final class TemplateEntityPlacementPlanner {
         }
     }
 
+    /**
+     * Refuses a template whose entities placement would refuse on every site,
+     * by the same rules: the NBT limits, passengers, players, and an anchor
+     * outside the structure in any allowed rotation. An entry placement would
+     * skip is skipped here too.
+     */
+    static void validateTemplate(
+            StructureDefinition definition,
+            List<Rotation> rotations,
+            FeatureFlagSet enabledFeatures) {
+        String structureId =
+                definition.source().id();
+        List<StructureEntityData> sourceEntities =
+                definition.entities();
+        TemplateEntityNbtLimits.validate(
+                sourceEntities);
+        rejectPassengers(
+                structureId,
+                sourceEntities);
+        for (StructureEntityData source
+                : sourceEntities) {
+            if (classify(
+                            structureId,
+                            source,
+                            enabledFeatures)
+                    .skipped()) {
+                continue;
+            }
+            for (Rotation rotation : rotations) {
+                BlockPos anchor =
+                        StructureTransforms.transform(
+                                source.blockPosition(),
+                                definition.size(),
+                                rotation);
+                if (!definition.view(rotation)
+                        .bounds()
+                        .contains(anchor)) {
+                    throw fatal(
+                            structureId,
+                            source,
+                            ANCHOR_OUTSIDE_STRUCTURE);
+                }
+            }
+        }
+    }
+
+    static SourceEntityType classify(
+            String structureId,
+            StructureEntityData source,
+            FeatureFlagSet enabledFeatures) {
+        Optional<String> authoredId =
+                source.authoredId();
+        if (authoredId.isEmpty()) {
+            return SourceEntityType.skippedBecause(
+                    "missing or non-string nbt.id");
+        }
+        ResourceLocation typeId =
+                ResourceLocation.tryParse(
+                        authoredId.orElseThrow());
+        if (typeId == null) {
+            return SourceEntityType.skippedBecause(
+                    "malformed nbt.id");
+        }
+        if (typeId.equals(
+                EntityType.getKey(
+                        EntityType.PLAYER))) {
+            throw fatal(
+                    structureId,
+                    source,
+                    PLAYER_FORBIDDEN);
+        }
+
+        EntityType<?> type =
+                BuiltInRegistries.ENTITY_TYPE
+                        .getOptional(typeId)
+                        .orElse(null);
+        if (type == null) {
+            return SourceEntityType.skippedBecause(
+                    "entity type is not registered");
+        }
+        if (type == EntityType.PLAYER) {
+            throw fatal(
+                    structureId,
+                    source,
+                    PLAYER_FORBIDDEN);
+        }
+        if (!type.isEnabled(
+                enabledFeatures)) {
+            return SourceEntityType.skippedBecause(
+                    "entity type is disabled by the level feature flags");
+        }
+        if (!type.canSerialize()) {
+            return SourceEntityType.skippedBecause(
+                    "entity type is not serializable");
+        }
+        return new SourceEntityType(
+                typeId,
+                type,
+                null);
+    }
+
     private static void rejectPassengers(
             String structureId,
             List<StructureEntityData> entities) {
@@ -377,7 +432,7 @@ final class TemplateEntityPlacementPlanner {
             throw fatal(
                     structureId,
                     source,
-                    "transformed block anchor is outside the structure bounds");
+                    ANCHOR_OUTSIDE_STRUCTURE);
         }
         if (position.y
                         < level.getMinBuildHeight()
@@ -756,6 +811,23 @@ final class TemplateEntityPlacementPlanner {
                         originalFailure);
             }
             throw cleanupFailure;
+        }
+    }
+
+    /** The registered type placement would create, or why it skips the entry. */
+    record SourceEntityType(
+            ResourceLocation typeId,
+            EntityType<?> type,
+            String skipReason) {
+        private static SourceEntityType skippedBecause(String reason) {
+            return new SourceEntityType(
+                    null,
+                    null,
+                    reason);
+        }
+
+        boolean skipped() {
+            return skipReason != null;
         }
     }
 

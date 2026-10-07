@@ -93,6 +93,12 @@ aggregate uncompressed entity NBT, or NBT nesting depth 64. Entity-addition
 failure after block placement is fail-closed and prevents the world from being
 marked complete.
 
+With the option on when a world is created, a template breaking one of these
+rules is rejected before the world is changed: the world keeps the vanilla
+spawn and the planning notice names the rule, as for an invalid template.
+Turning the option on for a world that is already planned leaves the check to
+its first load.
+
 ### Fitting the template to the site
 
 A template carries its own ground, so by default it takes the site's materials

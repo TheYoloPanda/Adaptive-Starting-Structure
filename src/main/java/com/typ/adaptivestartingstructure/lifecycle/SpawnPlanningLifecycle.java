@@ -8,6 +8,7 @@ import com.typ.adaptivestartingstructure.persistence.FallbackDecision;
 import com.typ.adaptivestartingstructure.persistence.StartingStructurePlan;
 import com.typ.adaptivestartingstructure.persistence.StartingStructureSavedData;
 import com.typ.adaptivestartingstructure.persistence.StartingStructureStorage;
+import com.typ.adaptivestartingstructure.placement.PlacementPreparation;
 import com.typ.adaptivestartingstructure.planner.PlannerQueryContext;
 import com.typ.adaptivestartingstructure.planner.SitePlanner;
 import com.typ.adaptivestartingstructure.planner.SitePlanningResult;
@@ -198,6 +199,10 @@ public final class SpawnPlanningLifecycle {
                     level.registryAccess().lookupOrThrow(Registries.BLOCK));
             StructureDefinition selected =
                     StructurePool.loadAndSelect(seed, sources, loader);
+            PlacementPreparation.validateTemplate(
+                    selected,
+                    config,
+                    level.enabledFeatures());
             PlannerQueryContext queries =
                     PlannerQueryContext.create(level, config);
             SitePlanningResult result = SitePlanner.plan(

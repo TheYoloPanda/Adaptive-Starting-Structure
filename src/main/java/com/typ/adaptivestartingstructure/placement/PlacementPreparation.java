@@ -15,6 +15,7 @@ import java.util.Objects;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.flag.FeatureFlagSet;
 import net.minecraft.world.level.ChunkPos;
 
 public final class PlacementPreparation {
@@ -111,6 +112,26 @@ public final class PlacementPreparation {
                 }
             }
             throw failure;
+        }
+    }
+
+    /**
+     * Refuses a template that placement would refuse wherever it landed.
+     * Planning commits the world spawn, so a refusal left to placement fails
+     * every world created with the template instead of leaving it vanilla.
+     */
+    public static void validateTemplate(
+            StructureDefinition definition,
+            ConfigSnapshot config,
+            FeatureFlagSet enabledFeatures) {
+        Objects.requireNonNull(definition, "definition");
+        Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(enabledFeatures, "enabledFeatures");
+        if (config.placeTemplateEntities()) {
+            TemplateEntityPlacementPlanner.validateTemplate(
+                    definition,
+                    config.allowedRotations(),
+                    enabledFeatures);
         }
     }
 

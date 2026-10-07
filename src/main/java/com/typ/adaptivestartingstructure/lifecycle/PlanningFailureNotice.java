@@ -1,5 +1,6 @@
 package com.typ.adaptivestartingstructure.lifecycle;
 
+import com.typ.adaptivestartingstructure.placement.PlacementPreparationException;
 import com.typ.adaptivestartingstructure.planner.CoarseRejectionReason;
 import com.typ.adaptivestartingstructure.planner.FineRejectionReason;
 import com.typ.adaptivestartingstructure.planner.GeneratorQueryBudgetExceededException;
@@ -71,6 +72,13 @@ record PlanningFailureNotice(
                     queryBudgetReason(
                             budgetFailure.queriesUsed(),
                             budgetFailure.maximumQueries()));
+        }
+        if (failure instanceof PlacementPreparationException) {
+            return new PlanningFailureNotice(
+                    phase,
+                    Component.translatable(
+                            REASON_PREFIX + "template_not_placeable",
+                            safeMessage(failure)));
         }
         if (failure instanceof IOException) {
             return new PlanningFailureNotice(
