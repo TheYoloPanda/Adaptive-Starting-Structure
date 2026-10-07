@@ -17,7 +17,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.block.Rotation;
-import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.Fluids;
 
 public final class CoarseSiteSearch {
@@ -362,6 +361,7 @@ public final class CoarseSiteSearch {
         }
 
         int[] groundHeights = new int[SAMPLE_COUNT];
+        SurfaceHeights[] surfaces = new SurfaceHeights[SAMPLE_COUNT];
         int minimumGroundY = Integer.MAX_VALUE;
         int maximumGroundY = Integer.MIN_VALUE;
         int fluidColumns = 0;
@@ -369,15 +369,18 @@ public final class CoarseSiteSearch {
                 BiomeClassifier.Classification.PREFERRED;
 
         /*
-         * Ground height and biome first, across every sample. Both can reject
-         * the candidate on their own, and interleaving the surface heightmap
-         * with them paid for surface queries on samples that a later sample
-         * was about to throw away anyway.
+         * Ground height and biome first, across every sample, since both can
+         * reject the candidate on their own; the surface and the water are
+         * judged only for a candidate that survives. Both heights come from
+         * one read of the column, which costs about what a single height does,
+         * so the second pass reads nothing new.
          */
         for (int sample = 0; sample < SAMPLE_COUNT; sample++) {
             int x = sampleX[sample];
             int z = sampleZ[sample];
-            int terrainHeight = queries.baseHeight(x, z, Heightmap.Types.OCEAN_FLOOR_WG);
+            SurfaceHeights surface = queries.surfaceHeights(x, z);
+            surfaces[sample] = surface;
+            int terrainHeight = surface.oceanFloor();
             if (!isValidHeight(terrainHeight, queries)) {
                 return diagnostics.reject(
                         CoarseRejectionReason.INVALID_TERRAIN_HEIGHT);
@@ -406,20 +409,20 @@ public final class CoarseSiteSearch {
             }
         }
 
-        /* Only a candidate that survived the first pass is worth a surface query. */
         for (int sample = 0; sample < SAMPLE_COUNT; sample++) {
             int x = sampleX[sample];
             int z = sampleZ[sample];
             int terrainHeight = groundHeights[sample] + 1;
-            int worldSurfaceHeight =
-                    queries.baseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG);
+            int worldSurfaceHeight = surfaces[sample].worldSurface();
             if (!isValidHeight(worldSurfaceHeight, queries)) {
                 return diagnostics.reject(
                         CoarseRejectionReason.INVALID_TERRAIN_HEIGHT);
             }
             if (worldSurfaceHeight > terrainHeight) {
+                TerrainColumn column = surfaces[sample].column()
+                        .orElseGet(() -> queries.baseColumn(x, z));
                 SurfaceFluid surfaceFluid = classifySurfaceFluid(
-                        queries.baseColumn(x, z),
+                        column,
                         terrainHeight,
                         worldSurfaceHeight);
                 if (surfaceFluid == SurfaceFluid.UNSUPPORTED) {
