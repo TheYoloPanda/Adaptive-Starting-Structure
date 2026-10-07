@@ -17,6 +17,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.flag.FeatureFlagSet;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Rotation;
 
 public final class PlacementPreparation {
     static final int TREE_OBSERVATION_MARGIN = 12;
@@ -127,6 +128,27 @@ public final class PlacementPreparation {
         Objects.requireNonNull(definition, "definition");
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(enabledFeatures, "enabledFeatures");
+        for (Rotation rotation : config.allowedRotations()) {
+            long observedColumns = PlacementBounds.calculate(
+                            definition.view(rotation),
+                            BlockPos.ZERO,
+                            config.blendWidth())
+                    .expandedBy(TREE_OBSERVATION_MARGIN)
+                    .affectedColumnCount();
+            if (observedColumns > PlacementBounds.MAX_AFFECTED_COLUMNS) {
+                throw new PlacementPreparationException(
+                        "Structure '"
+                                + definition.source().id()
+                                + "' with blendWidth "
+                                + config.blendWidth()
+                                + " needs terrain observed over "
+                                + observedColumns
+                                + " columns, including the "
+                                + TREE_OBSERVATION_MARGIN
+                                + "-block tree observation margin; the operational maximum is "
+                                + PlacementBounds.MAX_AFFECTED_COLUMNS);
+            }
+        }
         if (config.placeTemplateEntities()) {
             TemplateEntityPlacementPlanner.validateTemplate(
                     definition,

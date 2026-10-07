@@ -195,10 +195,13 @@ is redundant rather than an error.
 
 Terrain is blended only inside the configured bounded placement area. Tree
 analysis uses a fixed 12-block observation margin beyond that area without
-extending the terrain blend. A tree is removed as a complete connected tree
-when its trunk or canopy intersects the structure footprint, an actually
-modified blend column, or an explicit template cell. Trees that merely stand
-inside an unchanged part of the blend or observation area are preserved.
+extending the terrain blend. A template whose placement area with the
+configured `blendWidth`, widened by that margin, would cover more than
+262,144 columns (512 × 512) is rejected when the world is created. A tree is
+removed as a complete connected tree when its trunk or canopy intersects the
+structure footprint, an actually modified blend column, or an explicit
+template cell. Trees that merely stand inside an unchanged part of the blend
+or observation area are preserved.
 
 A removed tree takes with it what rests on it or hangs from it: vines, cocoa,
 bee nests, the snow on its canopy, a giant mushroom's cap, and blocks other
