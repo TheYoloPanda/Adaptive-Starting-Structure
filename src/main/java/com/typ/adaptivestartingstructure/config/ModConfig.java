@@ -270,7 +270,14 @@ public final class ModConfig {
             requireSafeSpawnArea = builder
                     .comment(
                             "Whether every column in the vanilla spawnRadius area must be safe. "
-                                    + "When false, only the exact spawn marker is validated.")
+                                    + "When false, only the exact spawn marker is validated.",
+                            "The square of 2 x spawnRadius + 1 blocks centred on the marker must lie inside "
+                                    + "the template's horizontal bounds, 21 blocks across with the default "
+                                    + "spawnRadius of 10, or every site is rejected and the world keeps the "
+                                    + "vanilla spawn.",
+                            "Each column is checked from the marker's feet height with a fall of at most "
+                                    + "3 blocks, not on the column's top where vanilla puts arriving players.",
+                            "Ignored while placePlayerAtSpawnMarker is true.")
                     .define("requireSafeSpawnArea", DEFAULT_REQUIRE_SAFE_SPAWN_AREA);
             allowUnlistedLandBiomes = builder
                     .comment("Whether non-preferred land biomes may be accepted with lower priority.")
@@ -356,7 +363,8 @@ public final class ModConfig {
                                     + "column's surface, which for a structure with a roof is the roof, "
                                     + "so the marker is otherwise rarely where anyone actually arrives.",
                             "Only applies to players with no bed or charged respawn anchor who arrive "
-                                    + "inside the vanilla spawn area, and only until placed once.")
+                                    + "inside the vanilla spawn area: once per player at login, and on every "
+                                    + "respawn that falls back to the world spawn.")
                     .define(
                             "placePlayerAtSpawnMarker",
                             DEFAULT_PLACE_PLAYER_AT_SPAWN_MARKER);

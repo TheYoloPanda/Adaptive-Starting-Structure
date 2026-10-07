@@ -116,9 +116,12 @@ becomes the filler: in a desert the structure stands on sand instead of a green
 patch. Other dirt in the template is left as authored. A stack hanging over air
 ends on the block worldgen puts on ceilings (sandstone under sand, stone under
 gravel, red sandstone under red sand), or stays as authored when its material
-would fall and has no such counterpart. Plants that cannot root in the new
-surface are removed. In a cold biome the template's open tops also get a snow
-layer, as the land around them does, except within reach of its own light.
+would fall and has no such counterpart. A plant standing on the template's
+replaced grass, such as grass, a flower or a sapling, is removed whenever the
+new surface is neither in the `minecraft:dirt` block tag nor farmland, even if
+it could grow there, as a dead bush can on sand. In a cold biome the
+template's open tops also get a snow layer, as the land around them does,
+except within reach of its own light.
 
 The server log names the materials chosen and counts what changed. With
 `adaptTemplateToSite = false` the template is placed exactly as authored.
@@ -147,6 +150,16 @@ spawn column in the full `spawnRadius` area must pass the same checks:
 requireSafeSpawnArea = true
 ```
 
+The area is the square `2 × spawnRadius + 1` blocks wide centred on the
+marker, and all of it must lie inside the template's horizontal bounds: with
+the default `spawnRadius` of 10 the template has to reach 10 blocks past the
+marker on every side, 21 blocks across with the marker in the middle. A
+smaller template, or a marker nearer an edge, fails this check on every site,
+so the world keeps the vanilla spawn without the structure. Each column of the
+square is checked from the marker's feet height, allowing a fall of at most
+three blocks onto a safe floor, and not on the top of the column, which is
+where vanilla actually puts an arriving player.
+
 This option never changes the vanilla `spawnRadius` gamerule, and it does not
 decide where anyone arrives: that is settled by `placePlayerAtSpawnMarker`
 below.
@@ -172,10 +185,12 @@ placePlayerAtSpawnMarker = true
 ```
 
 This applies to a player with no bed or charged respawn anchor who arrives
-inside the area the vanilla search could have chosen from, and only until that
-player has been placed once. It covers both the first login and a respawn that
-falls back to the world spawn, including one whose bed was destroyed. Set it to
-`false` in a pack that manages spawning itself.
+inside the area the vanilla search could have chosen from. At login it happens
+once per player: the first login after the structure is built settles it,
+whether or not that player is moved, and later logins leave the player where
+the game puts them. A respawn that falls back to the world spawn, including
+one whose bed was destroyed, is moved every time. Set it to `false` in a pack
+that manages spawning itself.
 
 ### Customizing the biome lists
 
@@ -304,11 +319,16 @@ a site inside it wins over a flatter one outside it. `maximumSearchRadius` is
 how far the search is willing to go when the near area yields nothing, not how
 far it always looks.
 
-Within one band, sites that may overlap a generated structure such as a village
-rank below sites that do not. This is a placement check on the structure grid
-that generates no chunks, and it is deliberately conservative: it does not
-check whether the structure's own biome conditions would let it generate there,
-so it lowers a site's rank but never rejects it.
+Sites that may overlap a generated structure such as a village rank below
+sites that do not, but only among the positions evaluated together. The search
+takes each band, the area inside `preferredSearchRadius` and the area beyond
+it, in groups of 64 lattice positions starting from the nearest, and keeps the
+sites in the order the groups yield them: a site that may overlap a village in
+one group wins over a clean site in a later group of the same band. The overlap
+test is a placement check on the structure grid that generates no chunks, and
+it is deliberately conservative: it does not check whether the structure's own
+biome conditions would let it generate there, so it lowers a site's rank but
+never rejects it.
 
 Each place is put forward in its best allowed rotation. Its other rotations
 are tried only once the band has offered every place, and only if that place
