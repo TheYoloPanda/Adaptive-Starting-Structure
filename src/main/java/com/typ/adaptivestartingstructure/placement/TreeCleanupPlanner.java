@@ -68,9 +68,15 @@ final class TreeCleanupPlanner {
             return Result.empty();
         }
 
-        LogIndex logIndex = indexLogs(snapshot, inventory.logs.keySet());
+        List<BlockPos> sortedLogs = sorted(inventory.logs.keySet());
+        List<BlockPos> sortedLeaves = sorted(inventory.leaves.keySet());
+        LogIndex logIndex = indexLogs(
+                snapshot,
+                sortedLogs,
+                inventory.logs.keySet());
         Map<BlockPos, LeafOwnership> leafOwnership =
                 assignLeaves(
+                        sortedLeaves,
                         inventory.leaves.keySet(),
                         logIndex.ownerByLog,
                         inventory.states);
@@ -91,7 +97,7 @@ final class TreeCleanupPlanner {
                 placementOrigin);
         TreeSet<Integer> selectedOwners = new TreeSet<>();
 
-        for (BlockPos log : sorted(inventory.logs.keySet())) {
+        for (BlockPos log : sortedLogs) {
             if (!interferes(
                     log,
                     leveling.plan(),
@@ -104,7 +110,7 @@ final class TreeCleanupPlanner {
             selectedOwners.add(owner);
         }
         Set<BlockPos> trunklessContacts = new LinkedHashSet<>();
-        for (BlockPos leaf : sorted(inventory.leaves.keySet())) {
+        for (BlockPos leaf : sortedLeaves) {
             if (!interferes(
                     leaf,
                     leveling.plan(),
@@ -214,31 +220,25 @@ final class TreeCleanupPlanner {
                     y < column.maximumCapturedYExclusive();
                     y++) {
                 BlockState state = column.stateAt(y);
+                if (state.isAir()) {
+                    continue;
+                }
+                TreePart part = part(state, column, y);
+                if (part == null) {
+                    continue;
+                }
                 BlockPos position = new BlockPos(
                         column.x(),
                         y,
                         column.z());
-                if (TerrainSurfaceClassifier.isTreeLog(state)) {
-                    logs.put(position, state);
-                } else if (TerrainSurfaceClassifier.isTreeLeaf(state)
-                        || isGiantMushroomPart(state)) {
-                    leaves.put(position, state);
-                } else if (state.getBlock() instanceof VineBlock) {
-                    vines.add(position);
-                } else if (state.getBlock() instanceof CocoaBlock) {
-                    cocoa.add(position);
-                } else if (state.getBlock() instanceof BeehiveBlock) {
-                    beeNests.add(position);
-                } else if (state.getBlock() instanceof SnowLayerBlock) {
-                    snow.add(position);
-                } else if (y + 1 < column.maximumCapturedYExclusive()
-                        && TerrainSurfaceClassifier.hangsFromTree(
-                                state,
-                                column.stateAt(y + 1),
-                                column.stateAt(y - 1))) {
-                    hanging.add(position);
-                } else {
-                    continue;
+                switch (part) {
+                    case LOG -> logs.put(position, state);
+                    case FOLIAGE -> leaves.put(position, state);
+                    case VINE -> vines.add(position);
+                    case COCOA -> cocoa.add(position);
+                    case BEE_NEST -> beeNests.add(position);
+                    case SNOW -> snow.add(position);
+                    case HANGING -> hanging.add(position);
                 }
                 states.put(position, state);
             }
@@ -254,12 +254,46 @@ final class TreeCleanupPlanner {
                 hanging);
     }
 
+    private static TreePart part(
+            BlockState state,
+            TerrainColumnSnapshot column,
+            int y) {
+        if (TerrainSurfaceClassifier.isTreeLog(state)) {
+            return TreePart.LOG;
+        }
+        if (TerrainSurfaceClassifier.isTreeLeaf(state)
+                || isGiantMushroomPart(state)) {
+            return TreePart.FOLIAGE;
+        }
+        if (state.getBlock() instanceof VineBlock) {
+            return TreePart.VINE;
+        }
+        if (state.getBlock() instanceof CocoaBlock) {
+            return TreePart.COCOA;
+        }
+        if (state.getBlock() instanceof BeehiveBlock) {
+            return TreePart.BEE_NEST;
+        }
+        if (state.getBlock() instanceof SnowLayerBlock) {
+            return TreePart.SNOW;
+        }
+        if (y + 1 < column.maximumCapturedYExclusive()
+                && TerrainSurfaceClassifier.hangsFromTree(
+                        state,
+                        column.stateAt(y + 1),
+                        column.stateAt(y - 1))) {
+            return TreePart.HANGING;
+        }
+        return null;
+    }
+
     private static LogIndex indexLogs(
             TerrainSnapshot snapshot,
+            List<BlockPos> sortedLogs,
             Set<BlockPos> logs) {
         Map<BlockPos, Integer> ownerByLog = new HashMap<>();
         List<LogComponent> components = new ArrayList<>();
-        for (BlockPos start : sorted(logs)) {
+        for (BlockPos start : sortedLogs) {
             if (ownerByLog.containsKey(start)) {
                 continue;
             }
@@ -303,12 +337,13 @@ final class TreeCleanupPlanner {
      * happens to touch, and removing a mushroom the leaves next to its stem.
      */
     private static Map<BlockPos, LeafOwnership> assignLeaves(
+            List<BlockPos> sortedLeaves,
             Set<BlockPos> leaves,
             Map<BlockPos, Integer> ownerByLog,
             Map<BlockPos, BlockState> states) {
         Map<BlockPos, LeafOwnership> ownership = new HashMap<>();
         Queue<LeafVisit> pending = new ArrayDeque<>();
-        for (BlockPos leaf : sorted(leaves)) {
+        for (BlockPos leaf : sortedLeaves) {
             for (Direction direction : Direction.values()) {
                 BlockPos log = leaf.relative(direction);
                 Integer owner = ownerByLog.get(log);
@@ -832,6 +867,16 @@ final class TreeCleanupPlanner {
         static Result empty() {
             return new Result(0, 0, 0, 0, List.of());
         }
+    }
+
+    private enum TreePart {
+        LOG,
+        FOLIAGE,
+        VINE,
+        COCOA,
+        BEE_NEST,
+        SNOW,
+        HANGING
     }
 
     private record Inventory(

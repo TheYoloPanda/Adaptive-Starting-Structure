@@ -1,6 +1,8 @@
 package com.typ.adaptivestartingstructure.placement;
 
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntFunction;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -83,6 +85,12 @@ final class TerrainSurfaceClassifier {
     private static final Set<Block> TRUNK_GROUND = Set.of(
             Blocks.DIRT,
             Blocks.ROOTED_DIRT);
+    /*
+     * A block's registry name never changes once the game is running; its tags
+     * do, with every datapack reload, so only the name test is remembered.
+     */
+    private static final Map<Block, Boolean> NAMED_AS_TREE_LOG =
+            new ConcurrentHashMap<>();
 
     private TerrainSurfaceClassifier() {
     }
@@ -140,7 +148,7 @@ final class TerrainSurfaceClassifier {
         return isTreeLog(state)
                 || isTreeLeaf(state)
                 || isTreeAttachment(state)
-                || isLightweightVegetation(state)
+                || isPlant(state)
                 || state.getBlock() instanceof HugeMushroomBlock;
     }
 
@@ -208,10 +216,14 @@ final class TerrainSurfaceClassifier {
     }
 
     static boolean isTreeLog(BlockState state) {
-        if (state.is(BlockTags.LOGS)) {
-            return true;
-        }
-        var id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
+        return state.is(BlockTags.LOGS)
+                || NAMED_AS_TREE_LOG.computeIfAbsent(
+                        state.getBlock(),
+                        TerrainSurfaceClassifier::isNamedAsTreeLog);
+    }
+
+    private static boolean isNamedAsTreeLog(Block block) {
+        var id = BuiltInRegistries.BLOCK.getKey(block);
         if (!id.getNamespace().equals("minecraft")) {
             return false;
         }
@@ -233,9 +245,13 @@ final class TerrainSurfaceClassifier {
         return !isTreeLog(state)
                 && !isTreeLeaf(state)
                 && !isTreeAttachment(state)
-                && (state.is(BlockTags.REPLACEABLE_BY_TREES)
-                        || state.getBlock() instanceof BushBlock
-                        || isPlantColumnOrCover(state));
+                && isPlant(state);
+    }
+
+    private static boolean isPlant(BlockState state) {
+        return state.is(BlockTags.REPLACEABLE_BY_TREES)
+                || state.getBlock() instanceof BushBlock
+                || isPlantColumnOrCover(state);
     }
 
     /*
