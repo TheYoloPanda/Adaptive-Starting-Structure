@@ -48,7 +48,12 @@ public final class StructureDefinition {
     private final int blockCount;
     private final int blockEntityCount;
     private final List<StructureEntityData> entities;
-    private final Map<Rotation, RotatedStructureView> rotatedViews;
+    /*
+     * Every template of the pool is loaded to validate it, and only the
+     * selected one is ever looked at in a rotation, usually not in all four.
+     */
+    private final Map<Rotation, RotatedStructureView> rotatedViews =
+            new EnumMap<>(Rotation.class);
 
     private StructureDefinition(
             ValidatedStructureTemplate validated,
@@ -70,17 +75,15 @@ public final class StructureDefinition {
         this.sourceDataVersion = validated.sourceDataVersion();
         this.loadedDataVersion = validated.loadedDataVersion();
         this.paletteCount = paletteCount;
-        this.placementElements = List.copyOf(placementElements);
-        this.elementsByPosition = Collections.unmodifiableMap(new LinkedHashMap<>(elementsByPosition));
-        this.explicitAirPositions =
-                Collections.unmodifiableSet(new LinkedHashSet<>(explicitAirPositions));
-        this.positionsToClear = Collections.unmodifiableSet(new LinkedHashSet<>(positionsToClear));
-        this.explicitCells = Collections.unmodifiableMap(new LinkedHashMap<>(explicitCells));
+        this.placementElements = Collections.unmodifiableList(placementElements);
+        this.elementsByPosition = Collections.unmodifiableMap(elementsByPosition);
+        this.explicitAirPositions = Collections.unmodifiableSet(explicitAirPositions);
+        this.positionsToClear = Collections.unmodifiableSet(positionsToClear);
+        this.explicitCells = Collections.unmodifiableMap(explicitCells);
         this.markers = Objects.requireNonNull(markers, "markers");
         this.blockCount = blockCount;
         this.blockEntityCount = blockEntityCount;
-        this.entities = List.copyOf(entities);
-        this.rotatedViews = createRotatedViews();
+        this.entities = Collections.unmodifiableList(entities);
     }
 
     static StructureDefinition from(
@@ -280,20 +283,10 @@ public final class StructureDefinition {
                 + ", palettes=" + paletteCount + "]";
     }
 
-    public RotatedStructureView view(Rotation rotation) {
-        RotatedStructureView view = rotatedViews.get(Objects.requireNonNull(rotation, "rotation"));
-        if (view == null) {
-            throw new IllegalArgumentException("Unsupported structure rotation: " + rotation);
-        }
-        return view;
-    }
-
-    private Map<Rotation, RotatedStructureView> createRotatedViews() {
-        EnumMap<Rotation, RotatedStructureView> views = new EnumMap<>(Rotation.class);
-        for (Rotation rotation : Rotation.values()) {
-            views.put(rotation, RotatedStructureView.create(this, rotation));
-        }
-        return Collections.unmodifiableMap(views);
+    public synchronized RotatedStructureView view(Rotation rotation) {
+        return rotatedViews.computeIfAbsent(
+                Objects.requireNonNull(rotation, "rotation"),
+                requested -> RotatedStructureView.create(this, requested));
     }
 
     private static List<List<BlockState>> readPalettes(
@@ -360,7 +353,7 @@ public final class StructureDefinition {
                     entityNbt,
                     authoredId));
         }
-        return List.copyOf(entities);
+        return entities;
     }
 
     private static List<BlockState> readPalette(

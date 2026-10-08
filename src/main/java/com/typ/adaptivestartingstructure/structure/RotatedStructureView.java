@@ -43,13 +43,12 @@ public final class RotatedStructureView {
         this.bounds = bounds;
         this.markers = markers;
         this.groundPlaneY = groundPlaneY;
-        this.placementElements = List.copyOf(placementElements);
-        this.elementsByPosition = Collections.unmodifiableMap(new LinkedHashMap<>(elementsByPosition));
-        this.explicitAirPositions =
-                Collections.unmodifiableSet(new LinkedHashSet<>(explicitAirPositions));
-        this.positionsToClear = Collections.unmodifiableSet(new LinkedHashSet<>(positionsToClear));
-        this.explicitCells = Collections.unmodifiableMap(new LinkedHashMap<>(explicitCells));
-        this.footprint = Collections.unmodifiableSet(new LinkedHashSet<>(footprint));
+        this.placementElements = Collections.unmodifiableList(placementElements);
+        this.elementsByPosition = Collections.unmodifiableMap(elementsByPosition);
+        this.explicitAirPositions = Collections.unmodifiableSet(explicitAirPositions);
+        this.positionsToClear = Collections.unmodifiableSet(positionsToClear);
+        this.explicitCells = Collections.unmodifiableMap(explicitCells);
+        this.footprint = Collections.unmodifiableSet(footprint);
     }
 
     static RotatedStructureView create(StructureDefinition definition, Rotation rotation) {

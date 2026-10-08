@@ -25,14 +25,29 @@ public final class PlacementPreparation {
     private PlacementPreparation() {
     }
 
+    /** The template a plan selected, read and validated from its file again. */
+    public static StructureDefinition loadSelected(
+            ServerLevel level,
+            StartingStructurePlan plan)
+            throws IOException, StructureLoadException {
+        Objects.requireNonNull(level, "level");
+        Objects.requireNonNull(plan, "plan");
+        StructureSource source =
+                StructurePool.resolveSelected(plan.candidate().structureId());
+        return new ExternalStructureLoader(
+                level.registryAccess().lookupOrThrow(Registries.BLOCK))
+                .loadDefinition(source);
+    }
+
     public static PreparedPlacement prepare(
             ServerLevel level,
             StartingStructureSavedData data,
-            ConfigSnapshot config)
-            throws IOException, StructureLoadException {
+            ConfigSnapshot config,
+            StructureDefinition definition) {
         Objects.requireNonNull(level, "level");
         Objects.requireNonNull(data, "data");
         Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(definition, "definition");
         if (data.state() != StartingStructureSavedData.State.PLANNED) {
             throw new PlacementPreparationException(
                     "Placement preparation requires PLANNED saved data, found "
@@ -44,11 +59,6 @@ public final class PlacementPreparation {
         }
 
         StartingStructurePlan plan = data.plan();
-        StructureSource source =
-                StructurePool.resolveSelected(plan.candidate().structureId());
-        StructureDefinition definition = new ExternalStructureLoader(
-                level.registryAccess().lookupOrThrow(Registries.BLOCK))
-                .loadDefinition(source);
         RotatedStructureView structure =
                 validateAssetAndGeometry(plan, definition, config);
         TemplatePlacementPlanner.validateBlockEntities(

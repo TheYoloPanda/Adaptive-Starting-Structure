@@ -12,7 +12,6 @@ import java.util.HexFormat;
 import java.util.Objects;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.HolderGetter;
-import net.minecraft.core.Vec3i;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
@@ -21,7 +20,6 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.util.datafix.DataFixTypes;
 import net.minecraft.util.datafix.DataFixers;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 
 public final class ExternalStructureLoader {
     public static final long MAX_COMPRESSED_BYTES = 64L * 1024L * 1024L;
@@ -73,15 +71,9 @@ public final class ExternalStructureLoader {
                 updatedRoot,
                 validation,
                 sha256);
-        CompoundTag normalizedRoot = normalized.normalizedNbt();
-        StructureTemplate template = loadTemplate(
-                source.path(),
-                normalizedRoot,
-                validation.size());
         return new ValidatedStructureTemplate(
                 source,
-                template,
-                normalizedRoot,
+                normalized.normalizedNbt(),
                 validation.size(),
                 sha256,
                 normalized.placementSha256(),
@@ -202,25 +194,6 @@ public final class ExternalStructureLoader {
                     path,
                     "Could not update structure from DataVersion " + sourceDataVersion
                             + " to " + currentDataVersion + ": " + path,
-                    exception);
-        }
-    }
-
-    private StructureTemplate loadTemplate(Path path, CompoundTag root, Vec3i validatedSize)
-            throws StructureLoadException {
-        try {
-            StructureTemplate template = new StructureTemplate();
-            template.load(blockGetter, root);
-            if (!template.getSize().equals(validatedSize)) {
-                throw new IllegalStateException(
-                        "Loaded template size does not match the validated size");
-            }
-            return template;
-        } catch (RuntimeException exception) {
-            throw new StructureLoadException(
-                    StructureLoadException.Category.INVALID_CONTENT,
-                    path,
-                    "Validated structure could not be loaded as a StructureTemplate: " + path,
                     exception);
         }
     }

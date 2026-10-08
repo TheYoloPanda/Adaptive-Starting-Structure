@@ -36,16 +36,14 @@ final class StructureNbtNormalizer {
         CompoundTag normalized = validatedRoot.copy();
         replaceUnavailablePaletteStatesWithAir(normalized, validation);
 
-        ListTag sourceBlocks = normalized.getList("blocks", CompoundTag.TAG_COMPOUND);
-        ListTag retainedBlocks = new ListTag();
+        ListTag blocks = normalized.getList("blocks", CompoundTag.TAG_COMPOUND);
         List<AirReplacement> airReplacements = new ArrayList<>();
         Set<ResourceLocation> unavailableBlockIds = new LinkedHashSet<>();
-        for (int index = 0; index < sourceBlocks.size(); index++) {
-            CompoundTag block = sourceBlocks.getCompound(index);
-            CompoundTag retainedBlock = block.copy();
+        for (int index = 0; index < blocks.size(); index++) {
+            CompoundTag block = blocks.getCompound(index);
             int stateIndex = block.getInt("state");
             if (validation.isUnavailable(stateIndex)) {
-                retainedBlock.remove("nbt");
+                block.remove("nbt");
                 ListTag position = block.getList("pos", CompoundTag.TAG_INT);
                 airReplacements.add(new AirReplacement(
                         position.getInt(0),
@@ -55,9 +53,7 @@ final class StructureNbtNormalizer {
                 unavailableBlockIds.addAll(
                         validation.unavailableBlocksByStateIndex().get(stateIndex));
             }
-            retainedBlocks.add(retainedBlock);
         }
-        normalized.put("blocks", retainedBlocks);
         airReplacements.sort(AIR_REPLACEMENT_ORDER);
 
         UnavailableBlockReport report = airReplacements.isEmpty()
@@ -121,14 +117,6 @@ final class StructureNbtNormalizer {
             CompoundTag normalizedNbt,
             String placementSha256,
             UnavailableBlockReport unavailableBlockReport) {
-        Result {
-            normalizedNbt = normalizedNbt.copy();
-        }
-
-        @Override
-        public CompoundTag normalizedNbt() {
-            return normalizedNbt.copy();
-        }
     }
 
     private record AirReplacement(int x, int y, int z, int stateIndex) {

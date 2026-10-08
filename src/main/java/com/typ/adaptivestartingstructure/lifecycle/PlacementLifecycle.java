@@ -22,6 +22,7 @@ import com.typ.adaptivestartingstructure.placement.UnsuitableGeneratedSiteExcept
 import com.typ.adaptivestartingstructure.placement.WorldFinalization;
 import com.typ.adaptivestartingstructure.placement.WorldFinalizationMetrics;
 import com.typ.adaptivestartingstructure.planner.SiteCandidate;
+import com.typ.adaptivestartingstructure.structure.StructureDefinition;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -460,6 +461,7 @@ public final class PlacementLifecycle {
             implements PlacementLifecycleContext {
         private final MinecraftServer server;
         private final ServerLevel level;
+        private StructureDefinition selected;
 
         private EventContext(MinecraftServer server) {
             this.server = Objects.requireNonNull(
@@ -544,6 +546,22 @@ public final class PlacementLifecycle {
             return config;
         }
 
+        /*
+         * Every site a start retries places the same template, so it is read
+         * from its file once per start, not once per site.
+         */
+        private StructureDefinition selectedDefinition(
+                StartingStructureSavedData data) throws Exception {
+            String structureId = data.plan().candidate().structureId();
+            if (selected == null
+                    || !selected.source().id().equals(structureId)) {
+                selected = PlacementPreparation.loadSelected(
+                        level,
+                        data.plan());
+            }
+            return selected;
+        }
+
         @Override
         public PlacementWork prepare(
                 StartingStructureSavedData data,
@@ -555,7 +573,8 @@ public final class PlacementLifecycle {
                     PlacementPreparation.prepare(
                             level,
                             data,
-                            config);
+                            config,
+                            selectedDefinition(data));
             try {
                 PreparedTerrainLeveling terrain =
                         TerrainLeveling.prepare(
