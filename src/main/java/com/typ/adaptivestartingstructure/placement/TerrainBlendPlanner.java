@@ -89,13 +89,7 @@ final class TerrainBlendPlanner {
                         snapshot,
                         interventionBounds)
                 .surface();
-        Map<BlockPos, BlockState> stateAfterLeveling =
-                new HashMap<>(leveling.plan().totalWrites());
-        for (TerrainWrite write : leveling.plan().writes()) {
-            stateAfterLeveling.put(
-                    write.position(),
-                    write.targetState());
-        }
+        LeveledTerrain leveled = new LeveledTerrain(leveling.plan());
 
         /*
          * The ring only eases the land into the structure's level, so a few
@@ -153,11 +147,10 @@ final class TerrainBlendPlanner {
                 }
                 planTerrainColumn(
                         writes,
-                        snapshot,
                         column,
                         targetY,
                         surface,
-                        stateAfterLeveling);
+                        leveled);
             }
             if (target.modifiesHeight()
                     || distances.contains(
@@ -165,10 +158,9 @@ final class TerrainBlendPlanner {
                             column.z())) {
                 planVegetation(
                         writes,
-                        snapshot,
                         column,
                         targetY,
-                        stateAfterLeveling);
+                        leveled);
             }
         }
 
@@ -336,21 +328,15 @@ final class TerrainBlendPlanner {
 
     private static void planTerrainColumn(
             Map<BlockPos, TerrainWrite> writes,
-            TerrainSnapshot snapshot,
             TerrainColumnSnapshot column,
             int targetY,
             BlockState surface,
-            Map<BlockPos, BlockState> stateAfterLeveling) {
+            LeveledTerrain leveled) {
         if (targetY < column.groundY()) {
             for (int y = column.groundY();
                     y > targetY;
                     y--) {
-                BlockState expected = expectedState(
-                        snapshot,
-                        stateAfterLeveling,
-                        column.x(),
-                        y,
-                        column.z());
+                BlockState expected = leveled.stateAt(column, y);
                 if (expected.getFluidState().isEmpty()) {
                     addWrite(
                             writes,
@@ -380,12 +366,7 @@ final class TerrainBlendPlanner {
                                 column.x(),
                                 y,
                                 column.z()),
-                        expectedState(
-                                snapshot,
-                                stateAfterLeveling,
-                                column.x(),
-                                y,
-                                column.z()),
+                        leveled.stateAt(column, y),
                         material,
                         TerrainWrite.Kind.BLEND_MATERIAL);
             }
@@ -400,12 +381,7 @@ final class TerrainBlendPlanner {
                                 column.x(),
                                 y,
                                 column.z()),
-                        expectedState(
-                                snapshot,
-                                stateAfterLeveling,
-                                column.x(),
-                                y,
-                                column.z()),
+                        leveled.stateAt(column, y),
                         materialAtDepth(column, surface, depth),
                         TerrainWrite.Kind.BLEND_FILL);
             }
@@ -414,21 +390,15 @@ final class TerrainBlendPlanner {
 
     private static void planVegetation(
             Map<BlockPos, TerrainWrite> writes,
-            TerrainSnapshot snapshot,
             TerrainColumnSnapshot column,
             int targetY,
-            Map<BlockPos, BlockState> stateAfterLeveling) {
+            LeveledTerrain leveled) {
         for (BlockPos position : column.vegetationPositions()) {
             if (position.getY() <= targetY
                     || writes.containsKey(position)) {
                 continue;
             }
-            BlockState expected = expectedState(
-                    snapshot,
-                    stateAfterLeveling,
-                    position.getX(),
-                    position.getY(),
-                    position.getZ());
+            BlockState expected = leveled.stateAt(column, position.getY());
             if (!expected.isAir()
                     && expected.getFluidState().isEmpty()
                     && TerrainSurfaceClassifier
@@ -456,19 +426,6 @@ final class TerrainBlendPlanner {
         return column.deepMaterial();
     }
 
-    private static BlockState expectedState(
-            TerrainSnapshot snapshot,
-            Map<BlockPos, BlockState> stateAfterLeveling,
-            int x,
-            int y,
-            int z) {
-        BlockPos position = new BlockPos(x, y, z);
-        BlockState leveled = stateAfterLeveling.get(position);
-        return leveled != null
-                ? leveled
-                : snapshot.column(x, z).stateAt(y);
-    }
-
     private static void addWrite(
             Map<BlockPos, TerrainWrite> writes,
             BlockPos position,
@@ -494,8 +451,20 @@ final class TerrainBlendPlanner {
     private static Set<BlockPos> collectFluidUpdates(
             TerrainSnapshot snapshot,
             Iterable<TerrainWrite> writes) {
+        Set<Long> fluidColumns = new HashSet<>();
+        for (TerrainColumnSnapshot column : snapshot.columns()) {
+            if (!column.fluidPositions().isEmpty()) {
+                fluidColumns.add(TerrainSnapshot.pack(column.x(), column.z()));
+            }
+        }
         Set<BlockPos> positions = new LinkedHashSet<>();
+        if (fluidColumns.isEmpty()) {
+            return positions;
+        }
         for (TerrainWrite write : writes) {
+            if (!nextToFluidColumn(fluidColumns, write.position())) {
+                continue;
+            }
             addFluidIfCaptured(
                     snapshot,
                     write.position(),
@@ -513,6 +482,39 @@ final class TerrainBlendPlanner {
                         LinkedHashSet::new,
                         Set::add,
                         Set::addAll);
+    }
+
+    /* The six neighbours of a write lie in its own column and the four beside it. */
+    private static boolean nextToFluidColumn(
+            Set<Long> fluidColumns,
+            BlockPos position) {
+        int x = position.getX();
+        int z = position.getZ();
+        return fluidColumns.contains(TerrainSnapshot.pack(x, z))
+                || fluidColumns.contains(TerrainSnapshot.pack(x + 1, z))
+                || fluidColumns.contains(TerrainSnapshot.pack(x - 1, z))
+                || fluidColumns.contains(TerrainSnapshot.pack(x, z + 1))
+                || fluidColumns.contains(TerrainSnapshot.pack(x, z - 1));
+    }
+
+    /* The terrain as leveling leaves it: its writes over the captured columns. */
+    private static final class LeveledTerrain {
+        private final Map<BlockPos, BlockState> written;
+        private final BlockPos.MutableBlockPos cursor =
+                new BlockPos.MutableBlockPos();
+
+        private LeveledTerrain(TerrainTransformationPlan leveling) {
+            written = new HashMap<>(leveling.totalWrites());
+            for (TerrainWrite write : leveling.writes()) {
+                written.put(write.position(), write.targetState());
+            }
+        }
+
+        BlockState stateAt(TerrainColumnSnapshot column, int y) {
+            BlockState leveled = written.get(
+                    cursor.set(column.x(), y, column.z()));
+            return leveled != null ? leveled : column.stateAt(y);
+        }
     }
 
     private static void addFluidIfCaptured(

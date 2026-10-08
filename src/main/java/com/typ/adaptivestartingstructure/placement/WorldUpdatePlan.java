@@ -44,32 +44,30 @@ final class WorldUpdatePlan {
                     "Finalization requires prepared chunks");
         }
 
-        LinkedHashSet<BlockPos> blockWrites =
+        LinkedHashSet<BlockPos> updates =
                 new LinkedHashSet<>();
         addPositionsWithin(
-                blockWrites,
+                updates,
                 levelingWrites,
                 this.interventionBounds);
         addPositionsWithin(
-                blockWrites,
+                updates,
                 environmentBlendingWrites,
                 this.interventionBounds);
         addPositionsWithin(
-                blockWrites,
+                updates,
                 treeCleanupWrites,
                 this.bounds);
         addPositionsWithin(
-                blockWrites,
+                updates,
                 templateWrites,
                 this.interventionBounds);
-        LinkedHashSet<BlockPos> updates =
-                new LinkedHashSet<>(blockWrites);
         addPositionsWithin(
                 updates,
                 finalTemplateUpdates,
                 this.interventionBounds);
         this.blockUpdatePositions =
-                immutablePositions(updates);
+                Collections.unmodifiableSet(updates);
 
         LinkedHashSet<BlockPos> entities =
                 new LinkedHashSet<>();

@@ -5,8 +5,10 @@ import com.typ.adaptivestartingstructure.config.BiomeListEdits;
 import com.typ.adaptivestartingstructure.config.ConfigSnapshot;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -31,6 +33,8 @@ public final class BiomeClassifier {
 
     private final Set<ResourceLocation> ignoredConfigEntries;
     private final List<IneffectiveEntry> ineffectiveConfigEntries;
+    private final Map<ResourceLocation, RememberedClassification> classifications =
+            new HashMap<>();
 
     private BiomeClassifier(
             boolean allowUnlistedLandBiomes,
@@ -216,8 +220,25 @@ public final class BiomeClassifier {
         });
     }
 
+    /**
+     * The classification of {@code biome}, worked out once per biome. A biome
+     * is sampled thousands of times while a site is planned and its tags do not
+     * change meanwhile; a sample naming it with other tags is classified anew.
+     */
     public Classification classify(BiomeSample biome) {
         Objects.requireNonNull(biome, "biome");
+        RememberedClassification remembered = classifications.get(biome.id());
+        if (remembered != null && remembered.tags().equals(biome.tags())) {
+            return remembered.classification();
+        }
+        Classification classification = classifyByLists(biome);
+        classifications.put(
+                biome.id(),
+                new RememberedClassification(biome.tags(), classification));
+        return classification;
+    }
+
+    private Classification classifyByLists(BiomeSample biome) {
         if (excludedBiomes.contains(biome.id())
                 || biome.tags().stream().anyMatch(excludedBiomeTags::contains)) {
             return Classification.EXCLUDED;
@@ -276,6 +297,11 @@ public final class BiomeClassifier {
             };
             return source + " " + id + " (" + why + ")";
         }
+    }
+
+    private record RememberedClassification(
+            Set<ResourceLocation> tags,
+            Classification classification) {
     }
 
     public enum Reason {

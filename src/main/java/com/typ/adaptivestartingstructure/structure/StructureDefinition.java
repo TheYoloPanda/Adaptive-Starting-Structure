@@ -113,9 +113,11 @@ public final class StructureDefinition {
                     positionTag.getInt(1),
                     positionTag.getInt(2));
             int stateIndex = blockTag.getInt("state");
-            List<BlockState> states = palettes.stream()
-                    .map(palette -> palette.get(stateIndex))
-                    .toList();
+            BlockState[] paletteStates = new BlockState[palettes.size()];
+            for (int palette = 0; palette < paletteStates.length; palette++) {
+                paletteStates[palette] = palettes.get(palette).get(stateIndex);
+            }
+            List<BlockState> states = List.of(paletteStates);
             CompoundTag blockEntityNbt =
                     blockTag.contains("nbt", CompoundTag.TAG_COMPOUND)
                             ? blockTag.getCompound("nbt")

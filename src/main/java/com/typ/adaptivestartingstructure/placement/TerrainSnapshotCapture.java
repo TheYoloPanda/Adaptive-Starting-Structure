@@ -225,8 +225,16 @@ final class TerrainSnapshotCapture {
         BlockState blockState(int x, int y, int z);
     }
 
-    private record ServerWorldView(ServerLevel level)
+    private static final class ServerWorldView
             implements WorldView {
+        private final ServerLevel level;
+        private final BlockPos.MutableBlockPos cursor =
+                new BlockPos.MutableBlockPos();
+
+        private ServerWorldView(ServerLevel level) {
+            this.level = level;
+        }
+
         @Override
         public int minimumBuildHeight() {
             return level.getMinBuildHeight();
@@ -255,7 +263,7 @@ final class TerrainSnapshotCapture {
 
         @Override
         public BlockState blockState(int x, int y, int z) {
-            return level.getBlockState(new BlockPos(x, y, z));
+            return level.getBlockState(cursor.set(x, y, z));
         }
     }
 }

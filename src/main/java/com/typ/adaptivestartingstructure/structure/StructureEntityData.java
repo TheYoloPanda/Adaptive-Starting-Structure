@@ -4,6 +4,8 @@ import java.util.Objects;
 import java.util.Optional;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 
 public record StructureEntityData(
@@ -44,5 +46,10 @@ public record StructureEntityData(
 
     public CompoundTag copyNbt() {
         return nbt.copy();
+    }
+
+    public boolean hasPassengers() {
+        return nbt.get(Entity.PASSENGERS_TAG) instanceof ListTag passengers
+                && !passengers.isEmpty();
     }
 }

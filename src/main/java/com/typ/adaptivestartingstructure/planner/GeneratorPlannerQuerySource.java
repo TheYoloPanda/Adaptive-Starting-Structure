@@ -1,5 +1,7 @@
 package com.typ.adaptivestartingstructure.planner;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import net.minecraft.core.BlockPos;
@@ -28,6 +30,7 @@ public final class GeneratorPlannerQuerySource implements PlannerWorldQuerySourc
     private final Climate.Sampler climateSampler;
     private final WorldBorder worldBorder;
     private final ChunkGeneratorStructureState structureState;
+    private final Map<Holder<Biome>, BiomeSample> biomeSamples = new HashMap<>();
 
     private GeneratorPlannerQuerySource(
             LevelHeightAccessor heightAccessor,
@@ -101,7 +104,7 @@ public final class GeneratorPlannerQuerySource implements PlannerWorldQuerySourc
                 quartY,
                 quartZ,
                 climateSampler);
-        return BiomeSample.fromHolder(biome);
+        return biomeSamples.computeIfAbsent(biome, BiomeSample::fromHolder);
     }
 
     @Override
