@@ -86,9 +86,17 @@ public final class PlacementLifecycle {
             case FAILED -> blockedOrRecovered(context, blockedFailed(data));
             case AWAITING_DECISION -> {
                 if (!context.supportsPlayerDecision()) {
+                    /*
+                     * level.dat holds the decision's spawn only once a save
+                     * followed the decision; a session that died before that
+                     * left the planned site's spawn there, with no structure.
+                     */
                     yield blockedOrRecovered(
                             context,
-                            blockedAwaitingDecision());
+                            blockedAwaitingDecision(),
+                            () -> context.applyFallbackSpawn(
+                                    data.fallbackDecision()
+                                            .orElseThrow()));
                 }
                 FallbackDecision decision =
                         data.fallbackDecision()
@@ -120,10 +128,19 @@ public final class PlacementLifecycle {
      */
     private static PlacementLifecycleResult blockedOrRecovered(
             PlacementLifecycleContext context,
-            StartingStructureStartupException blocked) {
+            StartingStructureStartupException blocked) throws Exception {
+        return blockedOrRecovered(context, blocked, () -> {
+        });
+    }
+
+    private static PlacementLifecycleResult blockedOrRecovered(
+            PlacementLifecycleContext context,
+            StartingStructureStartupException blocked,
+            RecoveryStep beforeLoading) throws Exception {
         if (context.blockedStateRecovery() != BlockedStateRecovery.SKIP) {
             throw blocked;
         }
+        beforeLoading.run();
         context.logBlockedStateRecovery(blocked.getMessage());
         return PlacementLifecycleResult.skipped();
     }
@@ -819,6 +836,10 @@ public final class PlacementLifecycle {
                     metrics.skippedByDisabledOption(),
                     metrics.skippedUnsupportedEntities());
         }
+    }
+
+    private interface RecoveryStep {
+        void run() throws Exception;
     }
 
     private static final class ServerPlacementWork
