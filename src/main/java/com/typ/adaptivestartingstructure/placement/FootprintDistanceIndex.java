@@ -3,6 +3,7 @@ package com.typ.adaptivestartingstructure.placement;
 import com.typ.adaptivestartingstructure.structure.FootprintColumn;
 import com.typ.adaptivestartingstructure.structure.RotatedStructureView;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -13,10 +14,14 @@ final class FootprintDistanceIndex {
     private final Set<Long> footprint;
     private final Node root;
 
+    /*
+     * Not Set.copyOf: its linear probing on the raw hash code, x ^ z for a
+     * packed column, piles nearby columns into one chain each lookup walks.
+     */
     private FootprintDistanceIndex(
             Set<Long> footprint,
             Node root) {
-        this.footprint = Set.copyOf(footprint);
+        this.footprint = Collections.unmodifiableSet(footprint);
         this.root = root;
     }
 

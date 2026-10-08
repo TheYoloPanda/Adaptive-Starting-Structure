@@ -3,6 +3,7 @@ package com.typ.adaptivestartingstructure.placement;
 import com.typ.adaptivestartingstructure.structure.RotatedStructureView;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -326,7 +327,7 @@ final class TreeCleanupPlanner {
                     rooted));
         }
         return new LogIndex(
-                Map.copyOf(ownerByLog),
+                Collections.unmodifiableMap(ownerByLog),
                 List.copyOf(components));
     }
 
@@ -417,6 +418,10 @@ final class TreeCleanupPlanner {
         }
     }
 
+    /*
+     * Not Set.copyOf: its linear probing on the raw hash code piles the dense
+     * hash codes of nearby positions into one chain, seconds on big templates.
+     */
     private static Set<BlockPos> templatePositions(
             RotatedStructureView structure,
             BlockPos origin) {
@@ -425,7 +430,7 @@ final class TreeCleanupPlanner {
                 positions.add(offsetExact(origin, element.position())));
         structure.positionsToClear().forEach(position ->
                 positions.add(offsetExact(origin, position)));
-        return Set.copyOf(positions);
+        return Collections.unmodifiableSet(positions);
     }
 
     private static boolean interferes(
