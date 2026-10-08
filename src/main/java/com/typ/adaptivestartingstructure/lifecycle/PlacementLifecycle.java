@@ -85,6 +85,9 @@ public final class PlacementLifecycle {
             case PLACING -> blockedOrRecovered(context, blockedPlacing());
             case FAILED -> blockedOrRecovered(context, blockedFailed(data));
             case AWAITING_DECISION -> {
+                FallbackDecision decision =
+                        data.fallbackDecision()
+                                .orElseThrow();
                 if (!context.supportsPlayerDecision()) {
                     /*
                      * level.dat holds the decision's spawn only once a save
@@ -94,13 +97,8 @@ public final class PlacementLifecycle {
                     yield blockedOrRecovered(
                             context,
                             blockedAwaitingDecision(),
-                            () -> context.applyFallbackSpawn(
-                                    data.fallbackDecision()
-                                            .orElseThrow()));
+                            () -> context.applyFallbackSpawn(decision));
                 }
-                FallbackDecision decision =
-                        data.fallbackDecision()
-                                .orElseThrow();
                 context.applyFallbackSpawn(decision);
                 context.logAwaitingDecision(decision);
                 yield PlacementLifecycleResult

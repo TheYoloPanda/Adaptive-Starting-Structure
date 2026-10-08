@@ -80,7 +80,7 @@ final class WorldUpdatePlan {
                     "BlockEntity updates must be part of final block updates");
         }
         this.blockEntityPositions =
-                immutablePositions(entities);
+                Collections.unmodifiableSet(entities);
 
         LinkedHashSet<BlockPos> fluidSeeds =
                 new LinkedHashSet<>();
@@ -93,7 +93,7 @@ final class WorldUpdatePlan {
                 templateFluidSeeds,
                 this.interventionBounds);
         this.fluidSeedPositions =
-                immutablePositions(fluidSeeds);
+                Collections.unmodifiableSet(fluidSeeds);
 
         LinkedHashSet<ChunkPos> changedChunks =
                 new LinkedHashSet<>();
@@ -267,25 +267,5 @@ final class WorldUpdatePlan {
             }
         }
         return Collections.unmodifiableSet(copy);
-    }
-
-    private static Set<BlockPos> immutablePositions(
-            Iterable<BlockPos> positions) {
-        LinkedHashSet<BlockPos> copy =
-                new LinkedHashSet<>();
-        addPositions(copy, positions);
-        return Collections.unmodifiableSet(copy);
-    }
-
-    private static void addPositions(
-            Set<BlockPos> target,
-            Iterable<BlockPos> positions) {
-        Objects.requireNonNull(positions, "positions");
-        for (BlockPos position : positions) {
-            target.add(Objects.requireNonNull(
-                            position,
-                            "position")
-                    .immutable());
-        }
     }
 }
