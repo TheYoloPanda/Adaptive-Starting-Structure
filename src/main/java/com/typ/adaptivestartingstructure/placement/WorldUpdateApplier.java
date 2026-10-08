@@ -57,9 +57,15 @@ final class WorldUpdateApplier {
             comparatorUpdates++;
         }
 
+        /*
+         * Every other position was written through Level.setBlock, which
+         * queues the check itself whenever the light properties change. A
+         * block entity's data is loaded after its block, and a modded block
+         * can take its light from that data without changing its state.
+         */
         int lightChecks = 0;
         for (BlockPos position
-                : plan.blockUpdatePositions()) {
+                : plan.blockEntityPositions()) {
             requireLoaded(world, position);
             world.checkLight(position);
             lightChecks++;
