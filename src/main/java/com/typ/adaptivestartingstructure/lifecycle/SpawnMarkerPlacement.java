@@ -4,7 +4,9 @@ import com.typ.adaptivestartingstructure.AdaptiveStartingStructure;
 import com.typ.adaptivestartingstructure.config.ModConfig;
 import com.typ.adaptivestartingstructure.persistence.StartingStructureSavedData;
 import com.typ.adaptivestartingstructure.persistence.StartingStructureStorage;
+import java.util.EnumSet;
 import java.util.Optional;
+import java.util.Set;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.MinecraftServer;
@@ -33,11 +35,19 @@ import net.neoforged.neoforge.event.entity.player.PlayerRespawnPositionEvent;
  * and who arrived inside the area that search could have chosen from. A login
  * settles it once per player, moved or not; a respawn that falls back to the
  * world spawn is moved every time.
+ *
+ * <p>A player let into a session refused before the structure stood is first
+ * brought to where the game puts a new player, once the world spawn is final.
  */
 public final class SpawnMarkerPlacement {
     static final String PLACED_KEY = "AdaptiveStartingStructurePlaced";
     static final String REFUSED_SESSION_KEY =
             "AdaptiveStartingStructureRefusedSession";
+    private static final Set<StartingStructureSavedData.State>
+            FINAL_SPAWN_STATES = EnumSet.of(
+                    StartingStructureSavedData.State.COMPLETE,
+                    StartingStructureSavedData.State.AWAITING_DECISION,
+                    StartingStructureSavedData.State.SKIPPED);
 
     private SpawnMarkerPlacement() {
     }
@@ -70,18 +80,18 @@ public final class SpawnMarkerPlacement {
 
     /**
      * Whether a player let into a session that was refused before the
-     * structure stood arrives again as a new player. Only once it stands:
-     * until then there is nothing to arrive at, and the next start may still
-     * build it anywhere.
+     * structure stood arrives again as a new player. Only once the world
+     * spawn is final: the structure's once it stands, or the vanilla spawn
+     * the world falls back to once every site is rejected, which is in place
+     * before anyone logs in. Until then the next start may still build the
+     * structure anywhere.
      */
     static boolean arrivesAgain(
             CompoundTag persistentData,
             Optional<StartingStructureSavedData.State> state) {
         return persistentData.getCompound(Player.PERSISTED_NBT_TAG)
                         .getBoolean(REFUSED_SESSION_KEY)
-                && state.filter(current -> current
-                                == StartingStructureSavedData.State.COMPLETE)
-                        .isPresent();
+                && state.filter(FINAL_SPAWN_STATES::contains).isPresent();
     }
 
     /**
@@ -195,8 +205,9 @@ public final class SpawnMarkerPlacement {
 
     /*
      * Placed where the game puts a player it has never seen, whatever
-     * placePlayerAtSpawnMarker says; the move onto the marker then treats
-     * the player as arriving, as it would have on a first load that worked.
+     * placePlayerAtSpawnMarker says; once the structure stands, the move onto
+     * the marker then treats the player as arriving, as it would have on a
+     * first load that worked.
      */
     private static void arriveAgainAfterRefusedSession(ServerPlayer player) {
         CompoundTag persistentData = player.getPersistentData();

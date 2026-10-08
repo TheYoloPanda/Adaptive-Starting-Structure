@@ -373,7 +373,9 @@ or has changed since the world was created, the start is refused but the world
 stays planned. It loads normally, and gets its structure, once the cause is
 fixed. A player who joined the refused session then arrives again where the
 game puts a new player, and on the spawn marker when `placePlayerAtSpawnMarker`
-is on, not where that session left them.
+is on, not where that session left them. If that later start rejects every
+site instead, they arrive where the game puts a new player around the vanilla
+spawn the world falls back to.
 
 ### Recovering a world that refuses to start
 
