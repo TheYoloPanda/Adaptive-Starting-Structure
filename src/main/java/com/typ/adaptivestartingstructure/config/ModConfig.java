@@ -63,6 +63,7 @@ public final class ModConfig {
 
     private static final Values VALUES;
     public static final ModConfigSpec SPEC;
+    private static final LastConfigLoad LAST_LOAD = new LastConfigLoad();
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -80,7 +81,7 @@ public final class ModConfig {
     }
 
     public static ConfigSnapshot snapshot() {
-        return VALUES.snapshot(false);
+        return LAST_LOAD.snapshot(() -> VALUES.snapshot(false));
     }
 
     static ConfigSnapshot defaultSnapshot() {
@@ -88,17 +89,17 @@ public final class ModConfig {
     }
 
     private static void onConfigLoading(ModConfigEvent.Loading event) {
-        validateOwnedConfig(event);
+        recordOwnedConfig(event);
     }
 
     private static void onConfigReloading(ModConfigEvent.Reloading event) {
-        validateOwnedConfig(event);
+        recordOwnedConfig(event);
     }
 
-    private static void validateOwnedConfig(ModConfigEvent event) {
+    private static void recordOwnedConfig(ModConfigEvent event) {
         if (event.getConfig().getSpec() == SPEC) {
             try {
-                snapshot();
+                LAST_LOAD.record(() -> VALUES.snapshot(false));
             } catch (IllegalArgumentException failure) {
                 /*
                  * Cross-field validation must not escape the config event.
