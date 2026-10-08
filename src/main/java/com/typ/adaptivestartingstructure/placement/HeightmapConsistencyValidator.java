@@ -5,6 +5,7 @@ import java.util.EnumSet;
 import java.util.Objects;
 import java.util.Set;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -49,16 +50,27 @@ final class HeightmapConsistencyValidator {
             int z) {
         EnumMap<Heightmap.Types, Integer> expected =
                 new EnumMap<>(Heightmap.Types.class);
-        for (int y = world.maximumBuildHeight() - 1;
-                y >= world.minimumBuildHeight()
-                        && expected.size()
-                                < TRACKED_TYPES.size();
-                y--) {
-            BlockState state = world.blockState(x, y, z);
-            for (Heightmap.Types type : TRACKED_TYPES) {
-                if (!expected.containsKey(type)
-                        && type.isOpaque().test(state)) {
-                    expected.put(type, y + 1);
+        int y = world.maximumBuildHeight() - 1;
+        while (y >= world.minimumBuildHeight()
+                && expected.size() < TRACKED_TYPES.size()) {
+            int sectionBottom = Math.max(
+                    world.minimumBuildHeight(),
+                    SectionPos.sectionToBlockCoord(
+                            SectionPos.blockToSectionCoord(y)));
+            // Air counts for none of the tracked heightmaps.
+            if (world.sectionHasOnlyAir(x, y, z)) {
+                y = sectionBottom - 1;
+                continue;
+            }
+            for (; y >= sectionBottom
+                            && expected.size() < TRACKED_TYPES.size();
+                    y--) {
+                BlockState state = world.blockState(x, y, z);
+                for (Heightmap.Types type : TRACKED_TYPES) {
+                    if (!expected.containsKey(type)
+                            && type.isOpaque().test(state)) {
+                        expected.put(type, y + 1);
+                    }
                 }
             }
         }
@@ -93,12 +105,20 @@ final class HeightmapConsistencyValidator {
         BlockState blockState(int x, int y, int z);
 
         int height(Heightmap.Types type, int x, int z);
+
+        default boolean sectionHasOnlyAir(int x, int y, int z) {
+            return false;
+        }
     }
 
-    private record ServerWorldView(ServerLevel level)
+    private static final class ServerWorldView
             implements WorldView {
-        private ServerWorldView {
-            Objects.requireNonNull(level, "level");
+        private final ServerLevel level;
+        private final BlockPos.MutableBlockPos cursor =
+                new BlockPos.MutableBlockPos();
+
+        private ServerWorldView(ServerLevel level) {
+            this.level = Objects.requireNonNull(level, "level");
         }
 
         @Override
@@ -113,8 +133,16 @@ final class HeightmapConsistencyValidator {
 
         @Override
         public BlockState blockState(int x, int y, int z) {
-            return level.getBlockState(
-                    new BlockPos(x, y, z));
+            return level.getBlockState(cursor.set(x, y, z));
+        }
+
+        @Override
+        public boolean sectionHasOnlyAir(int x, int y, int z) {
+            return level.getChunk(
+                            SectionPos.blockToSectionCoord(x),
+                            SectionPos.blockToSectionCoord(z))
+                    .getSection(level.getSectionIndex(y))
+                    .hasOnlyAir();
         }
 
         @Override
