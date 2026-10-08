@@ -153,6 +153,7 @@ public final class GeneratedStructureCollisionValidator {
                         structure,
                         templateChecks.add(key),
                         templateBox,
+                        chunk,
                         chunkWrites);
                 if (detail == null) {
                     continue;
@@ -171,18 +172,35 @@ public final class GeneratedStructureCollisionValidator {
             GeneratedStructure structure,
             boolean checkTemplateBounds,
             CollisionBox templateBox,
+            ChunkPos chunk,
             List<BlockPos> chunkWrites) {
         if (checkTemplateBounds
                 && structure.startBounds().intersects(templateBox)) {
             return TEMPLATE_BOUNDS_COLLISION;
         }
+        if (chunkWrites.isEmpty()) {
+            return null;
+        }
+        List<CollisionBox> pieces = piecesReaching(structure, chunk);
         for (BlockPos write : chunkWrites) {
-            if (insideAnyPiece(write, structure.pieceBounds())) {
+            if (insideAnyPiece(write, pieces)) {
                 return "contains a planned terrain write at "
                         + coordinate(write);
             }
         }
         return null;
+    }
+
+    private static List<CollisionBox> piecesReaching(
+            GeneratedStructure structure,
+            ChunkPos chunk) {
+        List<CollisionBox> pieces = new ArrayList<>();
+        for (CollisionBox piece : structure.pieceBounds()) {
+            if (piece.reachesColumnsOf(chunk)) {
+                pieces.add(piece);
+            }
+        }
+        return pieces;
     }
 
     private static Map<ChunkPos, List<BlockPos>> plannedWritePositions(
@@ -366,6 +384,13 @@ public final class GeneratedStructureCollisionValidator {
                     && minimumY <= other.maximumY
                     && maximumZ >= other.minimumZ
                     && minimumZ <= other.maximumZ;
+        }
+
+        boolean reachesColumnsOf(ChunkPos chunk) {
+            return maximumX >= chunk.getMinBlockX()
+                    && minimumX <= chunk.getMaxBlockX()
+                    && maximumZ >= chunk.getMinBlockZ()
+                    && minimumZ <= chunk.getMaxBlockZ();
         }
 
         boolean contains(BlockPos position) {
