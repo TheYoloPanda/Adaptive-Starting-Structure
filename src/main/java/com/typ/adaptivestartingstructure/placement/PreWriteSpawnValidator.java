@@ -38,7 +38,7 @@ public final class PreWriteSpawnValidator {
                 world -> TemplatePlacement.plan(
                         world,
                         prepared,
-                        terrain.leveling().snapshot(),
+                        terrain.plan(),
                         config),
                 candidate.worldSpawn(),
                 candidate.validatedSpawnRadius(),

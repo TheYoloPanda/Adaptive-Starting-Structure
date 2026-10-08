@@ -6,6 +6,7 @@ import com.typ.adaptivestartingstructure.structure.StructureBounds;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -45,13 +46,15 @@ public final class FineSiteEvaluator {
     public static FineSearchResult evaluate(
             ConfigSnapshot config,
             PlannerQueryContext queries,
-            List<CoarseCandidate> coarseCandidates) {
+            List<CoarseCandidate> coarseCandidates,
+            ExplicitAir explicitAir) {
         Objects.requireNonNull(config, "config");
         return evaluate(
                 config,
                 queries,
                 coarseCandidates,
-                config.fineCandidateCount());
+                config.fineCandidateCount(),
+                explicitAir);
     }
 
     /**
@@ -66,10 +69,12 @@ public final class FineSiteEvaluator {
             ConfigSnapshot config,
             PlannerQueryContext queries,
             List<CoarseCandidate> coarseCandidates,
-            int finalistBudget) {
+            int finalistBudget,
+            ExplicitAir explicitAir) {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(queries, "queries");
         Objects.requireNonNull(coarseCandidates, "coarseCandidates");
+        Objects.requireNonNull(explicitAir, "explicitAir");
         if (finalistBudget <= 0) {
             return new FineSearchResult(List.of(), List.of());
         }
@@ -81,7 +86,6 @@ public final class FineSiteEvaluator {
         List<FineCandidateEvaluation> evaluations = new ArrayList<>(finalistCount);
         List<FineCandidateEvaluation> accepted = new ArrayList<>(finalistCount);
         GeneratorQueryBudgetExceededException budgetFailure = null;
-        Map<Rotation, Map<Long, ColumnAir>> airByRotation = new HashMap<>();
         for (int index = 0; index < finalistCount; index++) {
             CoarseCandidate candidate = Objects.requireNonNull(
                     finalists.get(index),
@@ -92,9 +96,7 @@ public final class FineSiteEvaluator {
                         config,
                         queries,
                         candidate,
-                        airByRotation.computeIfAbsent(
-                                candidate.rotation(),
-                                ignored -> explicitAirByColumn(candidate.structure())));
+                        explicitAir.of(candidate));
             } catch (GeneratorQueryBudgetExceededException failure) {
                 /*
                  * The finalist under evaluation is incomplete and cannot be
@@ -502,11 +504,6 @@ public final class FineSiteEvaluator {
     /**
      * The explicit-air heights of one rotated structure, grouped by column and
      * carrying each column's lowest one.
-     *
-     * <p>This depends only on the rotated structure, not on where it is being
-     * placed, so it is built once per rotation instead of once per finalist: a
-     * structure with a hollow interior can hold tens of thousands of these
-     * positions.
      */
     private static Map<Long, ColumnAir> explicitAirByColumn(
             RotatedStructureView structure) {
@@ -529,6 +526,24 @@ public final class FineSiteEvaluator {
     }
 
     private record ColumnAir(List<Integer> relativeY, int minimumRelativeY) {
+    }
+
+    /**
+     * The explicit-air columns of the planned structure in each rotation, kept
+     * for a whole planning run. They depend only on the rotated structure, not
+     * on where it is being placed, and a structure with a hollow interior can
+     * hold tens of thousands of these positions, so they are built once per
+     * rotation rather than for every group of finalists.
+     */
+    public static final class ExplicitAir {
+        private final Map<Rotation, Map<Long, ColumnAir>> byRotation =
+                new EnumMap<>(Rotation.class);
+
+        private Map<Long, ColumnAir> of(CoarseCandidate candidate) {
+            return byRotation.computeIfAbsent(
+                    candidate.rotation(),
+                    ignored -> explicitAirByColumn(candidate.structure()));
+        }
     }
 
     private static SurfaceFluid classifyExplicitAirFluids(

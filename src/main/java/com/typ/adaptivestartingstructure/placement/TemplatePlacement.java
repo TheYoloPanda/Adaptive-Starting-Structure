@@ -37,7 +37,7 @@ public final class TemplatePlacement {
         TemplatePlacementPlan plan = plan(
                 level::getBlockState,
                 prepared,
-                terrain.leveling().snapshot(),
+                terrain.plan(),
                 config);
         int applied =
                 TemplatePlacementApplier.apply(level, plan);
@@ -51,7 +51,7 @@ public final class TemplatePlacement {
     static TemplatePlacementPlan plan(
             TemplatePlacementPlanner.BlockStateReader world,
             PreparedPlacement prepared,
-            TerrainSnapshot terrain,
+            TerrainBlendPlan terrain,
             ConfigSnapshot config) {
         return TemplatePlacementPlanner.plan(
                 world,
@@ -61,10 +61,9 @@ public final class TemplatePlacement {
                 prepared.bounds(),
                 config.adaptTemplateToSite()
                         ? new TemplateSiteAdaptation.Site(
-                                TemplateSiteAdaptation.materials(
-                                        terrain,
-                                        prepared.bounds()),
-                                SnowCoverPlanner.climateOf(prepared.level()))
+                                terrain.siteMaterials(),
+                                SnowCoverPlanner.climateOf(prepared.level()),
+                                terrain.lightSources())
                         : TemplateSiteAdaptation.Site.AS_AUTHORED);
     }
 }

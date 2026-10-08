@@ -32,6 +32,8 @@ public final class TerrainBlendPlan {
     private final int selectedTreeBlockCount;
     private final int selectedTreeAccessoryCount;
     private final int treeCleanupWrites;
+    private final TemplateSiteAdaptation.SiteMaterials siteMaterials;
+    private final List<SnowCoverPlanner.LightSource> lightSources;
 
     TerrainBlendPlan(
             TerrainSnapshot snapshot,
@@ -43,8 +45,13 @@ public final class TerrainBlendPlan {
             int selectedTreeCount,
             int selectedTreeBlockCount,
             int selectedTreeAccessoryCount,
-            int resurfacedTrunkGrounds) {
+            int resurfacedTrunkGrounds,
+            TemplateSiteAdaptation.SiteMaterials siteMaterials,
+            List<SnowCoverPlanner.LightSource> lightSources) {
         this.snapshot = Objects.requireNonNull(snapshot, "snapshot");
+        this.siteMaterials =
+                Objects.requireNonNull(siteMaterials, "siteMaterials");
+        this.lightSources = List.copyOf(lightSources);
         this.interventionBounds = Objects.requireNonNull(
                 interventionBounds,
                 "interventionBounds");
@@ -320,6 +327,14 @@ public final class TerrainBlendPlan {
 
     public int totalWrites() {
         return writes.size();
+    }
+
+    TemplateSiteAdaptation.SiteMaterials siteMaterials() {
+        return siteMaterials;
+    }
+
+    List<SnowCoverPlanner.LightSource> lightSources() {
+        return lightSources;
     }
 
     private static Set<BlockPos> immutablePositions(

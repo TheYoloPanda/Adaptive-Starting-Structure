@@ -85,10 +85,13 @@ final class TerrainBlendPlanner {
                 FootprintDistanceIndex.create(
                         structure,
                         placementOrigin);
-        Block siteSurface = TemplateSiteAdaptation.materials(
+        TemplateSiteAdaptation.SiteMaterials siteMaterials =
+                TemplateSiteAdaptation.materials(
                         snapshot,
-                        interventionBounds)
-                .surface();
+                        interventionBounds);
+        Block siteSurface = siteMaterials.surface();
+        List<SnowCoverPlanner.LightSource> lightSources =
+                SnowCoverPlanner.lightSources(structure, placementOrigin);
         LeveledTerrain leveled = new LeveledTerrain(leveling.plan());
 
         /*
@@ -195,7 +198,7 @@ final class TerrainBlendPlanner {
                         targets,
                         treeCleanupWritePositions,
                         distances),
-                SnowCoverPlanner.lightSources(structure, placementOrigin),
+                lightSources,
                 climate);
         /*
          * Beyond the blend only tree cleanup may write, up to the observation
@@ -247,7 +250,9 @@ final class TerrainBlendPlanner {
                 treeCleanup.selectedBlockCount(),
                 treeCleanup.selectedAccessoryCount(),
                 resurfacedTrunkGrounds
-                        + treeCleanup.resurfacedTrunkGrounds());
+                        + treeCleanup.resurfacedTrunkGrounds(),
+                siteMaterials,
+                lightSources);
     }
 
     /*

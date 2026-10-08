@@ -52,9 +52,16 @@ final class TemplateSiteAdaptation {
     private TemplateSiteAdaptation() {
     }
 
-    record Site(SiteMaterials materials, SnowCoverPlanner.Climate climate) {
+    record Site(
+            SiteMaterials materials,
+            SnowCoverPlanner.Climate climate,
+            List<SnowCoverPlanner.LightSource> lightSources) {
         static final Site AS_AUTHORED =
-                new Site(SiteMaterials.NONE, position -> false);
+                new Site(SiteMaterials.NONE, position -> false, List.of());
+
+        Site {
+            lightSources = List.copyOf(lightSources);
+        }
     }
 
     record SiteMaterials(
@@ -198,10 +205,8 @@ final class TemplateSiteAdaptation {
         }
 
         int snowLayers = 0;
-        List<SnowCoverPlanner.LightSource> lights =
-                SnowCoverPlanner.lightSources(structure, origin);
         for (long column : templateColumns) {
-            if (cover(plan, column, box, lights, site.climate())) {
+            if (cover(plan, column, box, site.lightSources(), site.climate())) {
                 snowLayers++;
             }
         }

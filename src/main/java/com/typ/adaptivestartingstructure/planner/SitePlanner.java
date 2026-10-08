@@ -387,6 +387,8 @@ public final class SitePlanner {
         private final int validationRadius;
         private final TheoreticalTerrainSource terrain;
         private final PlanningTelemetry measurements;
+        private final FineSiteEvaluator.ExplicitAir explicitAir =
+                new FineSiteEvaluator.ExplicitAir();
         private final EnumMap<SpawnRejectionReason, Integer> spawnRejectionCounts =
                 new EnumMap<>(SpawnRejectionReason.class);
         private final List<SiteCandidate> sites = new ArrayList<>();
@@ -428,7 +430,8 @@ public final class SitePlanner {
                     config,
                     queries,
                     candidates,
-                    finalistBudget);
+                    finalistBudget,
+                    explicitAir);
             measurements.end("fine");
             fineResult = fineResult == null
                     ? fine
