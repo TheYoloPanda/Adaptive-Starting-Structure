@@ -29,9 +29,10 @@ import net.neoforged.neoforge.event.entity.player.PlayerRespawnPositionEvent;
  * resolved to its surface.
  *
  * <p>The move is therefore made after the fact, and only for a player the
- * vanilla search actually placed: one who has no respawn block of their own,
- * who arrived inside the area that search could have chosen from, and who has
- * not been placed by this mod before.
+ * vanilla search actually placed: one who has no respawn block of their own
+ * and who arrived inside the area that search could have chosen from. A login
+ * settles it once per player, moved or not; a respawn that falls back to the
+ * world spawn is moved every time.
  */
 public final class SpawnMarkerPlacement {
     static final String PLACED_KEY = "AdaptiveStartingStructurePlaced";

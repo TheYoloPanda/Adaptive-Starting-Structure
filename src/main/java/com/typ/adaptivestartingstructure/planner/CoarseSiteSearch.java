@@ -373,7 +373,8 @@ public final class CoarseSiteSearch {
          * reject the candidate on their own; the surface and the water are
          * judged only for a candidate that survives. Both heights come from
          * one read of the column, which costs about what a single height does,
-         * so the second pass reads nothing new.
+         * so the second pass reads a column only for a sample whose heights
+         * the cache answered.
          */
         for (int sample = 0; sample < SAMPLE_COUNT; sample++) {
             int x = sampleX[sample];

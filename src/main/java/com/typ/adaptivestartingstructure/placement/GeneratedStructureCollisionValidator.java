@@ -32,8 +32,8 @@ public final class GeneratedStructureCollisionValidator {
      *
      * <p>Which structures reach a chunk is settled at
      * {@code STRUCTURE_REFERENCES}, long before the full chunks the rest of
-     * the check needs, so a site a structure rules out no longer costs the
-     * generation of its whole surroundings first. A structure in
+     * the check needs, so a site a structure rules out is refused without
+     * generating its whole surroundings first. A structure in
      * {@code ignoredStructures} is passed over silently: the full check
      * reports it once, when the writes are known.
      */
