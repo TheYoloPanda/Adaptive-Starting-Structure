@@ -75,6 +75,10 @@ public final class PlacementPreparation {
                 bounds.expandedBy(TREE_OBSERVATION_MARGIN);
         List<ChunkPos> chunks =
                 treeObservationBounds.requiredChunks();
+        GeneratedStructureCollisionValidator.validateTemplateVolume(
+                level,
+                bounds.structureBounds(),
+                config.ignoredStructureCollisions());
 
         ChunkTicketLease lease = null;
         PreparedTemplateEntities entities = null;

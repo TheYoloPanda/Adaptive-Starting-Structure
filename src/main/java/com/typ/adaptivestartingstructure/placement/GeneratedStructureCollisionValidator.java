@@ -20,7 +20,63 @@ import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
 
 public final class GeneratedStructureCollisionValidator {
+    private static final String TEMPLATE_BOUNDS_COLLISION =
+            "intersects the starting-template bounds";
+
     private GeneratedStructureCollisionValidator() {
+    }
+
+    /**
+     * Rejects the site when a generated structure's bounds intersect the
+     * template, before the site's chunks are generated.
+     *
+     * <p>Which structures reach a chunk is settled at
+     * {@code STRUCTURE_REFERENCES}, long before the full chunks the rest of
+     * the check needs, so a site a structure rules out no longer costs the
+     * generation of its whole surroundings first. A structure in
+     * {@code ignoredStructures} is passed over silently: the full check
+     * reports it once, when the writes are known.
+     */
+    public static void validateTemplateVolume(
+            ServerLevel level,
+            StructureBounds templateBounds,
+            Set<ResourceLocation> ignoredStructures) {
+        Objects.requireNonNull(level, "level");
+        if (!level.getServer().isSameThread()) {
+            throw new PlacementPreparationException(
+                    "Generated-structure collision validation must run on the server thread");
+        }
+        validateTemplateVolume(
+                new ServerWorldView(level),
+                templateBounds,
+                ignoredStructures);
+    }
+
+    static void validateTemplateVolume(
+            WorldView world,
+            StructureBounds templateBounds,
+            Set<ResourceLocation> ignoredStructures) {
+        Objects.requireNonNull(world, "world");
+        Objects.requireNonNull(templateBounds, "templateBounds");
+        Objects.requireNonNull(ignoredStructures, "ignoredStructures");
+
+        CollisionBox templateBox = CollisionBox.from(templateBounds);
+        Set<StructureKey> checked = new HashSet<>();
+        for (ChunkPos chunk : templateChunks(templateBounds)) {
+            for (GeneratedStructure structure
+                    : world.startsForChunk(chunk)) {
+                if (ignoredStructures.contains(structure.id())
+                        || !checked.add(new StructureKey(
+                                structure.id(),
+                                structure.startChunk()))) {
+                    continue;
+                }
+                if (structure.startBounds().intersects(templateBox)) {
+                    throw new UnsuitableGeneratedSiteException(
+                            describe(structure, TEMPLATE_BOUNDS_COLLISION));
+                }
+            }
+        }
     }
 
     /**
@@ -118,7 +174,7 @@ public final class GeneratedStructureCollisionValidator {
             List<BlockPos> chunkWrites) {
         if (checkTemplateBounds
                 && structure.startBounds().intersects(templateBox)) {
-            return "intersects the starting-template bounds";
+            return TEMPLATE_BOUNDS_COLLISION;
         }
         for (BlockPos write : chunkWrites) {
             if (insideAnyPiece(write, structure.pieceBounds())) {
