@@ -32,7 +32,9 @@ public final class TheoreticalSpawnValidator {
             int configuredRadius,
             RotatedStructureView structure,
             FineCandidatePlan plan,
-            TheoreticalTerrainSource terrain) {
+            TheoreticalTerrainSource terrain,
+            int minBuildHeight,
+            int maxBuildHeight) {
         Objects.requireNonNull(structure, "structure");
         Objects.requireNonNull(plan, "plan");
         Objects.requireNonNull(terrain, "terrain");
@@ -47,24 +49,18 @@ public final class TheoreticalSpawnValidator {
                         structure,
                         plan,
                         terrain,
-                        spawnFeet));
+                        minBuildHeight,
+                        maxBuildHeight));
     }
 
     private static List<? extends BlockGetter> createPaletteViews(
             RotatedStructureView structure,
             FineCandidatePlan plan,
             TheoreticalTerrainSource terrain,
-            BlockPos spawnFeet) {
+            int minBuildHeight,
+            int maxBuildHeight) {
         Map<Long, TerrainColumn> terrainColumns =
                 new HashMap<>();
-        TerrainColumn referenceColumn = terrainColumn(
-                terrain,
-                terrainColumns,
-                spawnFeet.getX(),
-                spawnFeet.getZ());
-        int minBuildHeight = referenceColumn.minY();
-        int maxBuildHeight =
-                referenceColumn.maxYExclusive();
         int paletteCount = paletteCount(structure);
         List<BlockGetter> views =
                 new ArrayList<>(paletteCount);

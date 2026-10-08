@@ -448,7 +448,9 @@ public final class SitePlanner {
                                     validationRadius,
                                     evaluation.candidate().structure(),
                                     plan,
-                                    terrain);
+                                    terrain,
+                                    queries.minBuildHeight(),
+                                    queries.maxBuildHeight());
                 } catch (GeneratorQueryBudgetExceededException failure) {
                     interrupt("spawn", failure);
                     break;
