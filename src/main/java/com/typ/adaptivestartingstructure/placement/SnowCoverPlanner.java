@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -58,7 +59,28 @@ final class SnowCoverPlanner {
             Collection<TerrainColumnSnapshot> columns,
             List<LightSource> lightSources,
             Climate climate) {
+        cover(writes, columns, Set.of(), lightSources, climate);
+    }
+
+    /**
+     * As {@link #cover(Map, Collection, List, Climate)}, leaving out the
+     * packed {@code templateColumns}. Their top here would be read without
+     * the template's blocks: snow put back on a canopy leaf the template
+     * replaces would undo the tree cleanup's removal of the snow above it,
+     * and snow under a template overhang would lie where worldgen puts
+     * none. The template's own pass covers those columns.
+     */
+    static void cover(
+            Map<BlockPos, TerrainWrite> writes,
+            Collection<TerrainColumnSnapshot> columns,
+            Set<Long> templateColumns,
+            List<LightSource> lightSources,
+            Climate climate) {
         for (TerrainColumnSnapshot column : columns) {
+            if (templateColumns.contains(
+                    TerrainSnapshot.pack(column.x(), column.z()))) {
+                continue;
+            }
             int topY = topBlockingY(column, writes);
             if (topY < column.minimumCapturedY()) {
                 continue;

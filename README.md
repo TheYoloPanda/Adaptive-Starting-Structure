@@ -239,7 +239,10 @@ mods hang under trees. The ground its trunk stood on, which worldgen turns to
 dirt, takes the site's most common surface instead of staying a bare patch.
 In a cold biome the reshaped ring and every column tree cleanup clears get
 back the snow layer worldgen would have put there, except within reach of the
-structure's own light, where it would melt.
+structure's own light, where it would melt. A column holding any template
+cell, outside the footprint too, is left to the template's own snow pass
+described above, so no layer lands under a template overhang; with
+`adaptTemplateToSite = false` such a column gets none.
 
 If a complete interfering tree cannot be resolved inside the observation
 margin, the physical site is rejected before placement. All planned rotations

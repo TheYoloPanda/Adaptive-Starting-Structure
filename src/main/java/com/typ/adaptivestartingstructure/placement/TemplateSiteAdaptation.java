@@ -147,14 +147,9 @@ final class TemplateSiteAdaptation {
             Site site) {
         Writes plan = new Writes(writes, world);
         Set<BlockPos> templateBlocks = new HashSet<>();
-        Set<Long> templateColumns = new LinkedHashSet<>();
         for (StructureElement element : structure.placementElements()) {
-            BlockPos position = origin.offset(element.position());
-            templateColumns.add(TerrainSnapshot.pack(
-                    position.getX(),
-                    position.getZ()));
             if (element.kind() == StructureElement.Kind.BLOCK) {
-                templateBlocks.add(position);
+                templateBlocks.add(origin.offset(element.position()));
             }
         }
 
@@ -205,7 +200,7 @@ final class TemplateSiteAdaptation {
         }
 
         int snowLayers = 0;
-        for (long column : templateColumns) {
+        for (long column : columns(structure, origin)) {
             if (cover(plan, column, box, site.lightSources(), site.climate())) {
                 snowLayers++;
             }
@@ -218,6 +213,26 @@ final class TemplateSiteAdaptation {
                 keptStacks,
                 plants,
                 snowLayers);
+    }
+
+    /**
+     * The columns whose snow this pass decides: every column holding a cell
+     * the template writes, markers included. The terrain stage reads those
+     * columns without the template's blocks, so it leaves them to this pass.
+     */
+    static Set<Long> columns(
+            RotatedStructureView structure,
+            BlockPos origin) {
+        Set<Long> columns = new LinkedHashSet<>();
+        for (StructureElement element : structure.placementElements()) {
+            BlockPos position = origin.offset(element.position());
+            columns.add(TerrainSnapshot.pack(position.getX(), position.getZ()));
+        }
+        for (BlockPos cleared : structure.positionsToClear()) {
+            BlockPos position = origin.offset(cleared);
+            columns.add(TerrainSnapshot.pack(position.getX(), position.getZ()));
+        }
+        return columns;
     }
 
     /*

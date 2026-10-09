@@ -198,6 +198,7 @@ final class TerrainBlendPlanner {
                         targets,
                         treeCleanupWritePositions,
                         distances),
+                TemplateSiteAdaptation.columns(structure, placementOrigin),
                 lightSources,
                 climate);
         /*
