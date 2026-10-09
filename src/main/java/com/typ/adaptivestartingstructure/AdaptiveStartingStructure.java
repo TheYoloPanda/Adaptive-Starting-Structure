@@ -2,6 +2,7 @@ package com.typ.adaptivestartingstructure;
 
 import com.mojang.logging.LogUtils;
 import com.typ.adaptivestartingstructure.config.ModConfig;
+import com.typ.adaptivestartingstructure.lifecycle.NoStructureNotice;
 import com.typ.adaptivestartingstructure.lifecycle.PlacementLifecycle;
 import com.typ.adaptivestartingstructure.lifecycle.PlacementFailureNotifier;
 import com.typ.adaptivestartingstructure.lifecycle.FallbackDecisionLifecycle;
@@ -39,6 +40,8 @@ public final class AdaptiveStartingStructure {
                 PlanningFailureNotifier::onServerStopped);
         NeoForge.EVENT_BUS.addListener(
                 SpawnMarkerPlacement::onPlayerLoggedIn);
+        NeoForge.EVENT_BUS.addListener(
+                NoStructureNotice::onPlayerLoggedIn);
         NeoForge.EVENT_BUS.addListener(
                 SpawnMarkerPlacement::onRespawnPosition);
     }

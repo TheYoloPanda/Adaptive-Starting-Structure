@@ -39,6 +39,14 @@ interface PlacementLifecycleContext {
     void applyFallbackSpawn(FallbackDecision decision)
             throws Exception;
 
+    void persistFallbackApplying(StartingStructureSavedData data)
+            throws Exception;
+
+    /** The writes of Continue Anyway, from the spawn to SKIPPED. */
+    void completeFallback(
+            StartingStructureSavedData data,
+            FallbackDecision decision) throws Exception;
+
     WorldFinalizationMetrics placeAndFinalize(
             PlacementWork work,
             ConfigSnapshot config) throws Exception;
@@ -72,6 +80,8 @@ interface PlacementLifecycleContext {
     void logInternalInconsistency(SiteCandidate site, Exception failure);
 
     void logAwaitingDecision(FallbackDecision decision);
+
+    void logContinuedWithoutStructure(FallbackDecision decision);
 
     void logCompletion(
             WorldFinalizationMetrics metrics,

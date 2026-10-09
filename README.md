@@ -311,9 +311,12 @@ If every planned candidate is rejected, singleplayer shows a blocking choice:
 `Delete World and Create New` deletes this world after a confirmation and
 opens Create New World, while `Continue Anyway` switches permanently to
 Minecraft's normal spawn without the starting structure (and restores the
-vanilla Bonus Chest choice when enabled). A dedicated server stops cleanly
-after logging the full error. Unexpected or potentially partial placement
-failures remain fail-closed.
+vanilla Bonus Chest choice when enabled). A dedicated server, which cannot
+show that choice, continues by itself as `Continue Anyway` does: the world
+loads without the structure at Minecraft's normal spawn, the log says so, and
+every player is told so in chat at their first login, with the advice to
+create a new world. Unexpected or potentially partial placement failures
+remain fail-closed.
 
 The deletion removes only the world-list entry whose folder is the running
 world's, and only once the integrated server has stopped and released the
@@ -417,23 +420,23 @@ The state is kept on disk, so setting the key back to `"block"` (the default)
 restores the refusal.
 
 A singleplayer world left waiting for its owner's decision, after every site
-was rejected, also refuses to start on a dedicated server, which cannot show
-that choice. `blockedStateRecovery = "skip"` loads it there as well, without
-the structure and with the vanilla spawn the decision saved.
+was rejected, continues by itself when it is started on a dedicated server,
+which cannot show that choice, as that server's own worlds do: without the
+structure, at the vanilla spawn the decision saved.
 
-If the game dies while `Continue Anyway` is being applied, or the save that
-follows cannot write the world spawn to `level.dat`, the world refuses to
-start as well. `blockedStateRecovery = "skip"` loads it with the vanilla
-spawn the decision saved; the bonus chest stays as the interrupted attempt
-left it, which may be partly placed or missing. A player who joined one of
-the refused sessions then arrives again where the game puts a new player
-around that spawn.
+If the game dies while `Continue Anyway`, or a dedicated server's own
+continuation, is being applied, or the save that follows cannot write the
+world spawn to `level.dat`, the world refuses to start as a half-built one
+does. `blockedStateRecovery = "skip"` loads it with the vanilla spawn the
+decision saved; the bonus chest stays as the interrupted attempt left it,
+which may be partly placed or missing. A player who joined one of the refused
+sessions then arrives again where the game puts a new player around that
+spawn.
 
-In both cases the decision's spawn is set by the first start that loads the
-world this way and gets that spawn written to `level.dat`; a start whose save
-cannot write it there says so in the log, and the next start sets it again. A
-spawn moved afterwards, with `/setworldspawn` or by another mod, is kept at
-later starts.
+That spawn is set by the first start that loads the world this way and gets it
+written to `level.dat`; a start whose save cannot write it there says so in
+the log, and the next start sets it again. A spawn moved afterwards, with
+`/setworldspawn` or by another mod, is kept at later starts.
 
 A start refused because placement failed before anything was written needs no
 recovery: the log says nothing was written, and loading again once the cause

@@ -109,20 +109,7 @@ public final class FallbackDecisionLifecycle {
         }
 
         try {
-            VanillaSpawnFallback.applySpawn(
-                    level,
-                    decision.vanillaSpawn());
-            if (decision.generateBonusChest()) {
-                VanillaSpawnFallback.placeBonusChest(
-                        level,
-                        decision.vanillaSpawn());
-            }
-            WorldSave.saveConfirmingSpawn(
-                    server,
-                    "after applying the no-structure fallback");
-            StartingStructureStorage.persistSkipped(
-                    level,
-                    data);
+            completeFallback(server, level, data, decision);
             AdaptiveStartingStructure.LOGGER.info(
                     "Starting-structure state transition: FALLBACK_APPLYING -> SKIPPED");
             PacketDistributor.sendToPlayer(
@@ -131,6 +118,33 @@ public final class FallbackDecisionLifecycle {
         } catch (Exception failure) {
             failClosed(server, player, failure);
         }
+    }
+
+    /**
+     * Applies a decision whose FALLBACK_APPLYING is already on disk, up to
+     * SKIPPED: the vanilla spawn, the bonus chest when the world asked for
+     * one, and a save that confirms level.dat holds the spawn before SKIPPED
+     * is recorded.
+     */
+    static void completeFallback(
+            MinecraftServer server,
+            ServerLevel level,
+            StartingStructureSavedData data,
+            FallbackDecision decision) throws Exception {
+        VanillaSpawnFallback.applySpawn(
+                level,
+                decision.vanillaSpawn());
+        if (decision.generateBonusChest()) {
+            VanillaSpawnFallback.placeBonusChest(
+                    level,
+                    decision.vanillaSpawn());
+        }
+        WorldSave.saveConfirmingSpawn(
+                server,
+                "after applying the no-structure fallback");
+        StartingStructureStorage.persistSkipped(
+                level,
+                data);
     }
 
     private static boolean isAuthorizedOwner(

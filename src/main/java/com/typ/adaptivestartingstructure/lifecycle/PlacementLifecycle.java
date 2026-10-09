@@ -90,18 +90,10 @@ public final class PlacementLifecycle {
                         data.fallbackDecision()
                                 .orElseThrow();
                 if (!context.supportsPlayerDecision()) {
-                    /*
-                     * level.dat holds the decision's spawn only once a save
-                     * followed the decision; a session that died before that
-                     * left the planned site's spawn there, with no structure.
-                     */
-                    yield blockedOrRecovered(
+                    yield continueWithoutStructure(
                             context,
-                            blockedAwaitingDecision(),
-                            () -> applyRecoverySpawnOnce(
-                                    context,
-                                    data,
-                                    decision));
+                            data,
+                            decision);
                 }
                 context.applyFallbackSpawn(decision);
                 context.logAwaitingDecision(decision);
@@ -189,6 +181,32 @@ public final class PlacementLifecycle {
         }
     }
 
+    /**
+     * Does what Continue Anyway does, where no owner can be asked: a
+     * dedicated server whose world has no site left goes on without the
+     * structure, at the decision's vanilla spawn, and tells each player so.
+     * Refusing every start instead would leave an admin a world no setting
+     * but "skip" could open. A failure before FALLBACK_APPLYING is on disk
+     * has written nothing, so the next start tries again; one after it
+     * leaves that state, which refuses to start, since the bonus chest may
+     * stand in part.
+     */
+    private static PlacementLifecycleResult continueWithoutStructure(
+            PlacementLifecycleContext context,
+            StartingStructureSavedData data,
+            FallbackDecision decision) throws Exception {
+        context.persistFallbackApplying(data);
+        context.logTransition(
+                StartingStructureSavedData.State.AWAITING_DECISION,
+                StartingStructureSavedData.State.FALLBACK_APPLYING);
+        context.completeFallback(data, decision);
+        context.logTransition(
+                StartingStructureSavedData.State.FALLBACK_APPLYING,
+                StartingStructureSavedData.State.SKIPPED);
+        context.logContinuedWithoutStructure(decision);
+        return PlacementLifecycleResult.skipped();
+    }
+
     private static PlacementLifecycleResult placePlanned(
             PlacementLifecycleContext context,
             StartingStructureSavedData data) throws Exception {
@@ -207,6 +225,16 @@ public final class PlacementLifecycle {
                 data,
                 config);
         if (preparedWork.isEmpty()) {
+            FallbackDecision decision =
+                    data.fallbackDecision().orElseThrow();
+            if (!context.supportsPlayerDecision()) {
+                return continueWithoutStructure(
+                        context,
+                        data,
+                        decision);
+            }
+            context.applyFallbackSpawn(decision);
+            context.logAwaitingDecision(decision);
             return PlacementLifecycleResult
                     .awaitingDecision();
         }
@@ -291,49 +319,39 @@ public final class PlacementLifecycle {
                     context.logLastCandidateRejected(
                             rejected,
                             failure.getMessage());
-                    if (context.supportsPlayerDecision()) {
-                        FallbackDecision decision;
-                        try {
-                            decision =
-                                    context.createFallbackDecision(
-                                            failure);
-                        } catch (Exception fallbackFailure) {
-                            fallbackFailure.addSuppressed(
-                                    failure);
-                            keepPlannedOrFail(
-                                    context,
-                                    data,
-                                    fallbackFailure);
-                            throw fallbackFailure;
-                        }
-                        try {
-                            context.persistAwaitingDecision(
-                                    data,
-                                    decision);
-                            context.logTransition(
-                                    StartingStructureSavedData.State
-                                            .PLANNED,
-                                    StartingStructureSavedData.State
-                                            .AWAITING_DECISION);
-                        } catch (Exception persistenceFailure) {
-                            persistenceFailure.addSuppressed(
-                                    failure);
-                            keepPlannedOrFail(
-                                    context,
-                                    data,
-                                    persistenceFailure);
-                            throw persistenceFailure;
-                        }
-                        context.applyFallbackSpawn(decision);
-                        context.logAwaitingDecision(decision);
-                        return Optional.empty();
+                    FallbackDecision decision;
+                    try {
+                        decision =
+                                context.createFallbackDecision(
+                                        failure);
+                    } catch (Exception fallbackFailure) {
+                        fallbackFailure.addSuppressed(
+                                failure);
+                        keepPlannedOrFail(
+                                context,
+                                data,
+                                fallbackFailure);
+                        throw fallbackFailure;
                     }
-                    // Every site failed on terrain a later start would generate again.
-                    persistFailed(
-                            context,
-                            data,
-                            failure);
-                    throw failure;
+                    try {
+                        context.persistAwaitingDecision(
+                                data,
+                                decision);
+                        context.logTransition(
+                                StartingStructureSavedData.State
+                                        .PLANNED,
+                                StartingStructureSavedData.State
+                                        .AWAITING_DECISION);
+                    } catch (Exception persistenceFailure) {
+                        persistenceFailure.addSuppressed(
+                                failure);
+                        keepPlannedOrFail(
+                                context,
+                                data,
+                                persistenceFailure);
+                        throw persistenceFailure;
+                    }
+                    return Optional.empty();
                 }
 
                 try {
@@ -518,13 +536,6 @@ public final class PlacementLifecycle {
         return new StartingStructureStartupException(
                 "Starting-structure state is FAILED; automatic retry is disabled. Last error: "
                         + data.lastError().orElse("unknown"));
-    }
-
-    private static StartingStructureStartupException
-            blockedAwaitingDecision() {
-        return new StartingStructureStartupException(
-                "Starting-structure state is AWAITING_DECISION, but the world is not running on its own integrated server. "
-                        + "Player fallback decisions are singleplayer-only.");
     }
 
     private static StartingStructureStartupException
@@ -752,6 +763,37 @@ public final class PlacementLifecycle {
             VanillaSpawnFallback.applySpawn(
                     level,
                     decision.vanillaSpawn());
+        }
+
+        @Override
+        public void persistFallbackApplying(
+                StartingStructureSavedData data) throws Exception {
+            StartingStructureStorage.persistFallbackApplying(level, data);
+        }
+
+        @Override
+        public void completeFallback(
+                StartingStructureSavedData data,
+                FallbackDecision decision) throws Exception {
+            FallbackDecisionLifecycle.completeFallback(
+                    server,
+                    level,
+                    data,
+                    decision);
+        }
+
+        @Override
+        public void logContinuedWithoutStructure(
+                FallbackDecision decision) {
+            AdaptiveStartingStructure.LOGGER.warn(
+                    "No safe generated site remained. A dedicated server cannot ask for the owner's choice, "
+                            + "so the world continues without the starting structure at Minecraft's normal spawn {} "
+                            + "(Bonus Chest {}); every player is told so at their first login. "
+                            + "This is not the intended way to play: creating a new world is recommended.",
+                    decision.vanillaSpawn(),
+                    decision.generateBonusChest()
+                            ? "placed"
+                            : "not requested");
         }
 
         @Override

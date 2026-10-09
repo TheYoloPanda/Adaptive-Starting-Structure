@@ -1,6 +1,7 @@
 {
   "message.adaptive_starting_structure.prefix": "[Adaptive Starting Structure]",
   "message.adaptive_starting_structure.planning_failure": "%1$s Structure not generated: %2$s. Vanilla spawn was used. Check the server log for details.",
+  "message.adaptive_starting_structure.continued_without_structure": "%1$s The starting structure could not be placed in this world: no safe location was found near the spawn. The world uses Minecraft's normal spawn, and the structure will never be generated here. Not intended: this may affect the modpack's intended progression. Creating a new world, for example with a different seed, is recommended.",
   "message.adaptive_starting_structure.reason.configuration": "invalid configuration: %1$s",
   "message.adaptive_starting_structure.reason.invalid_structure": "structure \"%1$s\" is invalid: %2$s",
   "message.adaptive_starting_structure.reason.template_not_placeable": "the selected structure cannot be placed: %1$s",
