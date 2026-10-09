@@ -326,6 +326,10 @@ final class TreeCleanupPlanner {
                     List.copyOf(componentLogs),
                     rooted));
         }
+        /*
+         * Not Map.copyOf like the list beside it: its linear probing on the raw
+         * hash code piles the dense hash codes of nearby logs into one chain.
+         */
         return new LogIndex(
                 Collections.unmodifiableMap(ownerByLog),
                 List.copyOf(components));
