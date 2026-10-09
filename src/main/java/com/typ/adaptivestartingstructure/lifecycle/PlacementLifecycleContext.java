@@ -69,6 +69,8 @@ interface PlacementLifecycleContext {
 
     void logLastCandidateRejected(SiteCandidate rejected, String reason);
 
+    void logInternalInconsistency(SiteCandidate site, Exception failure);
+
     void logAwaitingDecision(FallbackDecision decision);
 
     void logCompletion(

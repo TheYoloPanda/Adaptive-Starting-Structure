@@ -11,6 +11,7 @@ import com.typ.adaptivestartingstructure.persistence.StartingStructureSavedData;
 import com.typ.adaptivestartingstructure.persistence.StartingStructureStorage;
 import com.typ.adaptivestartingstructure.placement.GeneratedStructureCollisionValidator;
 import com.typ.adaptivestartingstructure.placement.PlacementPreparation;
+import com.typ.adaptivestartingstructure.placement.PlacementPreparationException;
 import com.typ.adaptivestartingstructure.placement.PreWriteSpawnValidator;
 import com.typ.adaptivestartingstructure.placement.PreparedPlacement;
 import com.typ.adaptivestartingstructure.placement.PreparedTerrainBlending;
@@ -271,6 +272,9 @@ public final class PlacementLifecycle {
                         context.prepare(data, config));
             } catch (UnsuitableGeneratedSiteException failure) {
                 var rejected = data.plan().candidate();
+                if (failure.internalInconsistency()) {
+                    context.logInternalInconsistency(rejected, failure);
+                }
                 OptionalInt discardedSiteCandidates;
                 try {
                     discardedSiteCandidates =
@@ -377,6 +381,19 @@ public final class PlacementLifecycle {
         }
         context.persistState(data);
         context.logTransition(previous, target);
+    }
+
+    /**
+     * Whether a failure while a site's terrain and template were planned is
+     * one of their own consistency checks failing, rather than a deliberate
+     * refusal. Those plans are computed from the site's generated blocks and
+     * the template alone, after the configuration and the template file have
+     * been accepted, so such a failure is a bug the next site may not hit.
+     */
+    static boolean isPlanInconsistency(Throwable failure) {
+        return (failure instanceof IllegalArgumentException
+                        || failure instanceof IllegalStateException)
+                && !(failure instanceof PlacementPreparationException);
     }
 
     /**
@@ -694,6 +711,10 @@ public final class PlacementLifecycle {
                 } catch (RuntimeException closeFailure) {
                     failure.addSuppressed(closeFailure);
                 }
+                if (isPlanInconsistency(failure)) {
+                    throw UnsuitableGeneratedSiteException
+                            .inconsistentPlans((RuntimeException) failure);
+                }
                 throw failure;
             }
         }
@@ -839,6 +860,23 @@ public final class PlacementLifecycle {
                     rejected.placementOrigin(),
                     rejected.rotation(),
                     reason);
+        }
+
+        @Override
+        public void logInternalInconsistency(
+                SiteCandidate site,
+                Exception failure) {
+            AdaptiveStartingStructure.LOGGER.error(
+                    "Preparing starting structure '{}' at center [{}, {}], origin {}, rotation {} "
+                            + "hit an internal inconsistency, a bug in Adaptive Starting Structure; "
+                            + "nothing was written and the site is skipped for the next one. "
+                            + "Please report it with this log.",
+                    site.structureId(),
+                    site.centerX(),
+                    site.centerZ(),
+                    site.placementOrigin(),
+                    site.rotation(),
+                    failure);
         }
 
         @Override

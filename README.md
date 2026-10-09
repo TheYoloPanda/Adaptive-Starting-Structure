@@ -287,6 +287,11 @@ ignoredStructureCollisions = ["ae2:meteorite"]
 The ground under the site is still judged like any other terrain, so a crater
 under the footprint is treated as the hole it is.
 
+A site whose planned terrain and template changes contradict each other, a
+bug in the mod rather than a property of the terrain, is skipped for the next
+one in the same way, before anything is written; the server log reports it as
+an error, in full, to be reported.
+
 If every planned candidate is rejected, singleplayer shows a blocking choice:
 `Delete World and Create New` deletes this world after a confirmation and
 opens Create New World, while `Continue Anyway` switches permanently to

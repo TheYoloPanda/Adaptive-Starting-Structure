@@ -5,8 +5,36 @@ import net.minecraft.world.level.block.state.BlockState;
 
 public final class UnsuitableGeneratedSiteException
         extends PlacementPreparationException {
+    private final boolean internalInconsistency;
+
     public UnsuitableGeneratedSiteException(String message) {
         super(message);
+        this.internalInconsistency = false;
+    }
+
+    private UnsuitableGeneratedSiteException(
+            String message,
+            RuntimeException cause) {
+        super(message, cause);
+        this.internalInconsistency = true;
+    }
+
+    /**
+     * A site whose terrain and template plans contradict each other: a bug,
+     * not the terrain. Nothing is written by then, and what triggers it is
+     * that site's own trees and ground, so it costs the site rather than a
+     * world refused at every start, each of which would replan the same site.
+     */
+    public static UnsuitableGeneratedSiteException inconsistentPlans(
+            RuntimeException cause) {
+        return new UnsuitableGeneratedSiteException(
+                "planning its terrain and template hit an internal inconsistency, "
+                        + "a bug in Adaptive Starting Structure: " + cause,
+                cause);
+    }
+
+    public boolean internalInconsistency() {
+        return internalInconsistency;
     }
 
     static UnsuitableGeneratedSiteException cutFillThresholdExceeded(
