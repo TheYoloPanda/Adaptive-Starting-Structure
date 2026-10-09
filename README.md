@@ -90,21 +90,29 @@ after the final block, light, heightmap, fluid, and spawn checks. Fractional
 positions and authored NBT are preserved, root UUIDs are regenerated, and mobs
 are not rerolled through natural-spawn finalization. Paintings, item frames,
 and other block-attached entities use their transformed template anchor and
-must remain supported by the final blocks.
+must remain supported by the final blocks. For paintings, item frames and
+leash knots that support is checked before anything is written, on the blocks
+the site will hold: a site where the terrain or the blend leaves one of them
+without its wall, fence or free space is skipped for the next one.
 
 Missing, malformed, unavailable, feature-disabled, non-serializable, or
 unloadable entity entries are skipped with a warning that identifies the
 template and source index. Player entities and passenger trees are rejected.
 Enabled placement also rejects templates exceeding 128 root entities, 4 MiB of
-aggregate uncompressed entity NBT, or NBT nesting depth 64, and templates with
-two block-attached entities on one anchor or with overlapping boxes.
+aggregate uncompressed entity NBT, or NBT nesting depth 64, templates with
+two block-attached entities on one anchor or with overlapping boxes, and
+templates whose own blocks cannot hold one of their paintings, item frames or
+leash knots in some palette: a support cell the template leaves as air or as
+a block that is not solid, a knot on a template cell that is not a fence, or a
+template block inside the entity. A support outside the template's cells is
+left to the site.
 Entity-addition failure after block placement is fail-closed and prevents the
 world from being marked complete.
 
 With the option on when a world is created, a template breaking one of these
 rules is rejected before the world is changed: the world keeps the vanilla
 spawn and the planning notice names the rule, as for an invalid template. For
-the block-attached rule the template's entities are created, never added to
+the block-attached rules the template's entities are created, never added to
 the world, and discarded. Turning the option on for a world that is already
 planned leaves the check to its first load.
 

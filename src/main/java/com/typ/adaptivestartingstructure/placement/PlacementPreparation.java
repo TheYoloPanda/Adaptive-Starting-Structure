@@ -173,10 +173,10 @@ public final class PlacementPreparation {
     }
 
     /**
-     * Refuses a template two of whose block-attached entities would conflict
-     * wherever it landed. Unlike the rules {@link #validateTemplate} checks,
-     * this one needs the entities themselves, and creating them needs the
-     * level.
+     * Refuses a template whose block-attached entities would fail wherever it
+     * landed: two of them conflicting, or one its own blocks do not hold.
+     * Unlike the rules {@link #validateTemplate} checks, these need the
+     * entities themselves, and creating them needs the level.
      */
     public static void validateTemplateAttachments(
             StructureDefinition definition,
@@ -188,7 +188,7 @@ public final class PlacementPreparation {
         if (!config.placeTemplateEntities()) {
             return;
         }
-        TemplateEntityPlacementPlanner.validateAttachmentConflicts(
+        TemplateEntityPlacementPlanner.validateAttachments(
                 definition,
                 config.allowedRotations(),
                 level.enabledFeatures(),

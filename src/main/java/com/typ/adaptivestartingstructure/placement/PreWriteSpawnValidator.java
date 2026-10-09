@@ -11,12 +11,13 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.LevelHeightAccessor;
 
 /**
- * Checks the persisted spawn on the blocks the site will hold, before any of
- * them is written. Planning takes the ground under the footprint for stone,
- * so a spawn whose floor the template leaves to the ground can stand over a
- * cave, water or lava that only the generated chunks show; found here, the
- * site is skipped for the next one instead of blocking the world after its
- * writes.
+ * Checks the persisted spawn and the template's block-attached entities on
+ * the blocks the site will hold, before any of them is written. Planning
+ * takes the ground under the footprint for stone, so a spawn whose floor the
+ * template leaves to the ground can stand over a cave, water or lava that
+ * only the generated chunks show, and a frame can hang on terrain the blend
+ * cuts away; found here, the site is skipped for the next one instead of
+ * blocking the world after its writes.
  */
 public final class PreWriteSpawnValidator {
     private PreWriteSpawnValidator() {
@@ -31,7 +32,7 @@ public final class PreWriteSpawnValidator {
         Objects.requireNonNull(config, "config");
         ServerLevel level = prepared.level();
         var candidate = prepared.savedData().plan().candidate();
-        validate(
+        FinalBlockView blocks = finalBlocks(
                 level::getBlockState,
                 level,
                 terrain,
@@ -39,10 +40,13 @@ public final class PreWriteSpawnValidator {
                         world,
                         prepared,
                         terrain.plan(),
-                        config),
+                        config));
+        validateSpawn(
+                blocks,
                 candidate.worldSpawn(),
                 candidate.validatedSpawnRadius(),
                 prepared.bounds().structureBounds());
+        AttachmentSupport.requireAttached(prepared.entities(), blocks);
     }
 
     static void validate(
@@ -53,12 +57,32 @@ public final class PreWriteSpawnValidator {
             BlockPos spawnFeet,
             int spawnRadius,
             StructureBounds structureBounds) {
+        validateSpawn(
+                finalBlocks(world, heights, terrain, template),
+                spawnFeet,
+                spawnRadius,
+                structureBounds);
+    }
+
+    static FinalBlockView finalBlocks(
+            TemplatePlacementPlanner.BlockStateReader world,
+            LevelHeightAccessor heights,
+            PreparedTerrainBlending terrain,
+            Function<TemplatePlacementPlanner.BlockStateReader, TemplatePlacementPlan> template) {
         FinalBlockView blocks = new FinalBlockView(world, heights);
         blocks.writeTerrain(terrain.leveling().plan().writes());
         blocks.writeTerrain(terrain.plan().environmentWrites());
         blocks.writeTerrain(terrain.plan().treeCleanupPlanWrites());
         blocks.writeTemplate(
                 template.apply(blocks::getBlockState).writes());
+        return blocks;
+    }
+
+    private static void validateSpawn(
+            FinalBlockView blocks,
+            BlockPos spawnFeet,
+            int spawnRadius,
+            StructureBounds structureBounds) {
         SpawnValidationResult spawnValidation =
                 RealSpawnValidator.validate(
                         spawnRadius,

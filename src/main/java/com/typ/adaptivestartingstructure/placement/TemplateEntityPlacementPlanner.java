@@ -248,14 +248,15 @@ final class TemplateEntityPlacementPlanner {
     }
 
     /**
-     * Refuses a template two of whose block-attached entities would share an
-     * anchor or overlap on every site. Only the entities themselves can tell,
-     * so the entries placement would place are materialized detached, as
-     * placement does it, at the template's own coordinates in every allowed
-     * rotation, compared, and discarded. An entry placement would skip is
-     * skipped here as well, without a warning: placement gives that one.
+     * Refuses a template whose block-attached entities would fail on every
+     * site: two sharing an anchor or overlapping, or one the template's own
+     * blocks do not hold in some palette. Only the entities themselves can
+     * tell, so the entries placement would place are materialized detached,
+     * as placement does it, at the template's own coordinates in every
+     * allowed rotation, checked, and discarded. An entry placement would skip
+     * is skipped here as well, without a warning: placement gives that one.
      */
-    static void validateAttachmentConflicts(
+    static void validateAttachments(
             StructureDefinition definition,
             List<Rotation> rotations,
             FeatureFlagSet enabledFeatures,
@@ -269,6 +270,49 @@ final class TemplateEntityPlacementPlanner {
                             entityFactory)) {
                 TemplateEntityPlacementApplier.validateAttachmentConflicts(
                         prepared);
+                validateTemplateSupport(
+                        definition,
+                        definition.view(rotation),
+                        prepared);
+            }
+        }
+    }
+
+    /*
+     * Judged on the template's cells alone: a support the site provides is
+     * unknown here, and left to the check before the writes.
+     */
+    private static void validateTemplateSupport(
+            StructureDefinition definition,
+            RotatedStructureView structure,
+            PreparedTemplateEntities prepared) {
+        for (int palette = 0;
+                palette < definition.paletteCount();
+                palette++) {
+            TemplateBlockView blocks =
+                    new TemplateBlockView(structure, palette);
+            for (int index = 0; index < prepared.size(); index++) {
+                TemplateEntityPlacementEntry entry = prepared.entry(index);
+                Optional<String> failure = AttachmentSupport.failure(
+                        prepared.entity(index),
+                        entry.placementNbt(),
+                        blocks,
+                        blocks::knows);
+                if (failure.isPresent()) {
+                    throw new PlacementPreparationException(
+                            "Template entity in structure '"
+                                    + definition.source().id()
+                                    + "' at source index "
+                                    + entry.sourceIndex()
+                                    + " (type '"
+                                    + entry.typeId()
+                                    + "') would not stay attached to the template's own blocks in rotation "
+                                    + structure.rotation()
+                                    + ", palette "
+                                    + palette
+                                    + ": "
+                                    + failure.get());
+                }
             }
         }
     }
