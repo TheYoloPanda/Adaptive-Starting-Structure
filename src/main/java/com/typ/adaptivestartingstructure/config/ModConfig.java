@@ -352,10 +352,14 @@ public final class ModConfig {
             blockedStateRecovery = builder
                     .comment(
                             "What to do with a world whose starting-structure state blocks startup, "
-                                    + "which happens when the game died during placement.",
+                                    + "which happens when the game died during placement, when the world waits "
+                                    + "for its owner's fallback decision on a server that cannot show it, or when "
+                                    + "the game died while that decision was being applied.",
                             "'block' refuses to start so the half-modified world is not accepted silently.",
                             "'skip' gives up on the starting structure and loads the world as it is, "
-                                    + "which may leave partial terrain or structure blocks behind.")
+                                    + "which may leave partial terrain or structure blocks behind.",
+                            "With 'skip', a world waiting for or applying its fallback decision gets the "
+                                    + "vanilla spawn that decision saved, on the first such start.")
                     .define(
                             "blockedStateRecovery",
                             DEFAULT_BLOCKED_STATE_RECOVERY,

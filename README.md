@@ -404,6 +404,10 @@ left it, which may be partly placed or missing. A player who joined one of
 the refused sessions then arrives again where the game puts a new player
 around that spawn.
 
+In both cases the decision's spawn is set by the first start that loads the
+world this way, and a spawn moved afterwards, with `/setworldspawn` or by
+another mod, is kept at later starts.
+
 A start refused because placement failed before anything was written needs no
 recovery: the log says nothing was written, and loading again once the cause
 is fixed builds the structure. With `blockedStateRecovery = "skip"` such a

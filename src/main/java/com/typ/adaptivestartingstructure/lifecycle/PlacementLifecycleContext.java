@@ -52,6 +52,8 @@ interface PlacementLifecycleContext {
 
     void logBlockedStateRecovery(String blockedReason);
 
+    void logRecoverySpawnNotRecorded(Exception failure);
+
     void logPlannedKept();
 
     void logTransition(

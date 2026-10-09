@@ -25,17 +25,21 @@ public final class StartingStructureSavedData extends SavedData {
     private static final String FALLBACK_SPAWN = "VanillaSpawn";
     private static final String GENERATE_BONUS_CHEST =
             "GenerateBonusChest";
+    private static final String RECOVERY_SPAWN_APPLIED =
+            "RecoverySpawnApplied";
 
     private StartingStructurePlan plan;
     private State state;
     private String lastError;
     private FallbackDecision fallbackDecision;
+    private boolean recoverySpawnApplied;
 
     private StartingStructureSavedData(
             StartingStructurePlan plan,
             State state,
             String lastError,
             FallbackDecision fallbackDecision,
+            boolean recoverySpawnApplied,
             boolean dirty) {
         this.plan = Objects.requireNonNull(plan, "plan");
         this.state = Objects.requireNonNull(state, "state");
@@ -47,6 +51,7 @@ public final class StartingStructureSavedData extends SavedData {
                 state,
                 fallbackDecision,
                 this.lastError);
+        this.recoverySpawnApplied = recoverySpawnApplied;
         setDirty(dirty);
     }
 
@@ -57,6 +62,7 @@ public final class StartingStructureSavedData extends SavedData {
                 State.PLANNED,
                 null,
                 null,
+                false,
                 true);
     }
 
@@ -74,6 +80,10 @@ public final class StartingStructureSavedData extends SavedData {
 
     public Optional<FallbackDecision> fallbackDecision() {
         return Optional.ofNullable(fallbackDecision);
+    }
+
+    public boolean recoverySpawnApplied() {
+        return recoverySpawnApplied;
     }
 
     public void markPlacing() {
@@ -109,6 +119,16 @@ public final class StartingStructureSavedData extends SavedData {
                 State.SKIPPED,
                 lastError,
                 fallbackDecision);
+    }
+
+    public void markRecoverySpawnApplied() {
+        if (state != State.AWAITING_DECISION
+                && state != State.FALLBACK_APPLYING) {
+            throw new IllegalStateException(
+                    "Recording the recovery spawn requires AWAITING_DECISION or FALLBACK_APPLYING state");
+        }
+        recoverySpawnApplied = true;
+        setDirty();
     }
 
     public void advanceCandidate() {
@@ -156,6 +176,9 @@ public final class StartingStructureSavedData extends SavedData {
             fallback.putBoolean(
                     GENERATE_BONUS_CHEST,
                     fallbackDecision.generateBonusChest());
+            if (recoverySpawnApplied) {
+                fallback.putBoolean(RECOVERY_SPAWN_APPLIED, true);
+            }
             tag.put(FALLBACK, fallback);
         }
         return tag;
@@ -177,6 +200,7 @@ public final class StartingStructureSavedData extends SavedData {
                         State.AWAITING_DECISION,
                         decision.originalError(),
                         decision,
+                        false,
                         false);
         return next.save(tag, registries);
     }
@@ -216,6 +240,7 @@ public final class StartingStructureSavedData extends SavedData {
             lastError = tag.getString(LAST_ERROR);
         }
         FallbackDecision fallbackDecision = null;
+        boolean recoverySpawnApplied = false;
         if (schemaVersion == 1) {
             if (state == State.AWAITING_DECISION
                     || state == State.FALLBACK_APPLYING
@@ -258,6 +283,14 @@ public final class StartingStructureSavedData extends SavedData {
                                 + exception.getMessage(),
                         exception);
             }
+            if (fallback.contains(RECOVERY_SPAWN_APPLIED)) {
+                requireType(
+                        fallback,
+                        RECOVERY_SPAWN_APPLIED,
+                        Tag.TAG_BYTE);
+                recoverySpawnApplied = fallback.getBoolean(
+                        RECOVERY_SPAWN_APPLIED);
+            }
         }
         try {
             return new StartingStructureSavedData(
@@ -265,6 +298,7 @@ public final class StartingStructureSavedData extends SavedData {
                     state,
                     lastError,
                     fallbackDecision,
+                    recoverySpawnApplied,
                     false);
         } catch (IllegalArgumentException exception) {
             throw new StartingStructureDataException(

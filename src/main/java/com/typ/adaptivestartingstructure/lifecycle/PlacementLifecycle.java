@@ -97,7 +97,10 @@ public final class PlacementLifecycle {
                     yield blockedOrRecovered(
                             context,
                             blockedAwaitingDecision(),
-                            () -> context.applyFallbackSpawn(decision));
+                            () -> applyRecoverySpawnOnce(
+                                    context,
+                                    data,
+                                    decision));
                 }
                 context.applyFallbackSpawn(decision);
                 context.logAwaitingDecision(decision);
@@ -109,14 +112,18 @@ public final class PlacementLifecycle {
                         data.fallbackDecision()
                                 .orElseThrow();
                 /*
-                 * Only the spawn is applied again: setting it twice changes
-                 * nothing, while the bonus chest may already stand, whole
-                 * or in part, and nothing on disk says which.
+                 * Of what the interrupted attempt applies, only the spawn is
+                 * applied again: setting it twice changes nothing, while the
+                 * bonus chest may already stand, whole or in part, and
+                 * nothing on disk says which.
                  */
                 yield blockedOrRecovered(
                         context,
                         blockedFallbackApplying(),
-                        () -> context.applyFallbackSpawn(decision));
+                        () -> applyRecoverySpawnOnce(
+                                context,
+                                data,
+                                decision));
             }
             case SKIPPED -> {
                 context.logNoOp(
@@ -151,6 +158,34 @@ public final class PlacementLifecycle {
         beforeLoading.run();
         context.logBlockedStateRecovery(blocked.getMessage());
         return PlacementLifecycleResult.skipped();
+    }
+
+    /**
+     * Gives a world that its fallback decision blocks, and that skip loads
+     * anyway, that decision's spawn once, so that a spawn moved afterwards,
+     * with /setworldspawn or by another mod, is kept by later starts. The
+     * world is saved before the record because the game writes a level's
+     * SavedData ahead of level.dat, and a record that reached disk alone
+     * would keep every later start from replacing a planned site's spawn
+     * still in level.dat. A failed save or record only warns: skip exists to
+     * load a blocked world, and without the record the next start applies
+     * the spawn again.
+     */
+    private static void applyRecoverySpawnOnce(
+            PlacementLifecycleContext context,
+            StartingStructureSavedData data,
+            FallbackDecision decision) throws Exception {
+        if (data.recoverySpawnApplied()) {
+            return;
+        }
+        context.applyFallbackSpawn(decision);
+        try {
+            context.flushWorldChanges();
+            data.markRecoverySpawnApplied();
+            context.persistState(data);
+        } catch (Exception failure) {
+            context.logRecoverySpawnNotRecorded(failure);
+        }
     }
 
     private static PlacementLifecycleResult placePlanned(
@@ -549,6 +584,15 @@ public final class PlacementLifecycle {
                             + "terrain or structure changes from the interrupted attempt.",
                     BlockedStateRecovery.SKIP.configValue(),
                     blockedReason);
+        }
+
+        @Override
+        public void logRecoverySpawnNotRecorded(Exception failure) {
+            AdaptiveStartingStructure.LOGGER.warn(
+                    "Could not save the world after applying the fallback decision's spawn, or record that it was "
+                            + "applied; the spawn is set for this session, but the next start may set it again "
+                            + "and put back a spawn moved in the meantime",
+                    failure);
         }
 
         @Override
