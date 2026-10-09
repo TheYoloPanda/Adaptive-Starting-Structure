@@ -397,6 +397,11 @@ was rejected, also refuses to start on a dedicated server, which cannot show
 that choice. `blockedStateRecovery = "skip"` loads it there as well, without
 the structure and with the vanilla spawn the decision saved.
 
+If the game dies while `Continue Anyway` is being applied, the world refuses
+to start as well. `blockedStateRecovery = "skip"` loads it with the vanilla
+spawn the decision saved; the bonus chest stays as the interrupted attempt
+left it, which may be partly placed or missing.
+
 A start refused because placement failed before anything was written needs no
 recovery: the log says nothing was written, and loading again once the cause
 is fixed builds the structure. With `blockedStateRecovery = "skip"` such a

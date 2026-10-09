@@ -104,10 +104,20 @@ public final class PlacementLifecycle {
                 yield PlacementLifecycleResult
                         .awaitingDecision();
             }
-            case FALLBACK_APPLYING ->
-                    blockedOrRecovered(
-                            context,
-                            blockedFallbackApplying());
+            case FALLBACK_APPLYING -> {
+                FallbackDecision decision =
+                        data.fallbackDecision()
+                                .orElseThrow();
+                /*
+                 * Only the spawn is applied again: setting it twice changes
+                 * nothing, while the bonus chest may already stand, whole
+                 * or in part, and nothing on disk says which.
+                 */
+                yield blockedOrRecovered(
+                        context,
+                        blockedFallbackApplying(),
+                        () -> context.applyFallbackSpawn(decision));
+            }
             case SKIPPED -> {
                 context.logNoOp(
                         PlacementLifecycleResult.Status.SKIPPED);
