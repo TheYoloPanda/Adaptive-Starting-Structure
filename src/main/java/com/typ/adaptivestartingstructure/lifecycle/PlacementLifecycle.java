@@ -766,13 +766,9 @@ public final class PlacementLifecycle {
 
         @Override
         public void flushWorldChanges() {
-            if (!server.saveAllChunks(
-                    true,
-                    true,
-                    true)) {
-                throw new StartingStructureStartupException(
-                        "Minecraft did not save any level after starting-structure placement");
-            }
+            WorldSave.saveConfirmingSpawn(
+                    server,
+                    "after starting-structure world changes");
         }
 
         @Override

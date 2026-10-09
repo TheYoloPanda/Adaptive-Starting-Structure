@@ -117,10 +117,9 @@ public final class FallbackDecisionLifecycle {
                         level,
                         decision.vanillaSpawn());
             }
-            if (!server.saveAllChunks(true, true, true)) {
-                throw new StartingStructureStartupException(
-                        "Minecraft did not save any level after applying the no-structure fallback");
-            }
+            WorldSave.saveConfirmingSpawn(
+                    server,
+                    "after applying the no-structure fallback");
             StartingStructureStorage.persistSkipped(
                     level,
                     data);

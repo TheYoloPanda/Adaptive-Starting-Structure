@@ -379,7 +379,8 @@ spawn the world falls back to.
 
 ### Recovering a world that refuses to start
 
-If the game dies while the structure is being built, the saved state stays at
+If the game dies while the structure is being built, or the save that follows
+cannot write the world spawn to `level.dat`, the saved state stays at
 `PLACING` or `FAILED` and every later start refuses to run, because the world
 may be half-modified. To load such a world anyway:
 
@@ -397,16 +398,19 @@ was rejected, also refuses to start on a dedicated server, which cannot show
 that choice. `blockedStateRecovery = "skip"` loads it there as well, without
 the structure and with the vanilla spawn the decision saved.
 
-If the game dies while `Continue Anyway` is being applied, the world refuses
-to start as well. `blockedStateRecovery = "skip"` loads it with the vanilla
+If the game dies while `Continue Anyway` is being applied, or the save that
+follows cannot write the world spawn to `level.dat`, the world refuses to
+start as well. `blockedStateRecovery = "skip"` loads it with the vanilla
 spawn the decision saved; the bonus chest stays as the interrupted attempt
 left it, which may be partly placed or missing. A player who joined one of
 the refused sessions then arrives again where the game puts a new player
 around that spawn.
 
 In both cases the decision's spawn is set by the first start that loads the
-world this way, and a spawn moved afterwards, with `/setworldspawn` or by
-another mod, is kept at later starts.
+world this way and gets that spawn written to `level.dat`; a start whose save
+cannot write it there says so in the log, and the next start sets it again. A
+spawn moved afterwards, with `/setworldspawn` or by another mod, is kept at
+later starts.
 
 A start refused because placement failed before anything was written needs no
 recovery: the log says nothing was written, and loading again once the cause
