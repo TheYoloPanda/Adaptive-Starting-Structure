@@ -11,8 +11,13 @@ Structure templates are loaded from:
 config/adaptive_starting_structure/structures/
 ```
 
-Only direct `.nbt` files with lowercase names matching `[a-z0-9_.-]+` are
-considered.
+Every regular file directly in that folder whose name ends in `.nbt` belongs
+to the pool; subfolders and other files are ignored. The pool has to be
+clean: a name outside `[a-z0-9_.-]+` (an uppercase letter, a space), the
+`.nbt` extension in another case, two names that differ only by case, a
+symbolic link or an unreadable file makes planning fail for every new world,
+which then keeps the vanilla spawn while the planning notice names the file.
+So does a folder without any `.nbt` file.
 
 ## ⚠️ Required DATA markers
 
@@ -54,6 +59,12 @@ In Minecraft Java Edition 1.21.1, the normal mode selector only cycles through
 
 The template is rejected if either marker is missing, duplicated, outside the
 template, not in `DATA` mode, or uses unknown Custom Data.
+
+Every template in the pool is read and checked this way, its markers, palettes
+and NBT, whenever a world is created, so one malformed file makes planning
+fail even when the world would have selected another one. The rules further
+down that concern placing a template (its Block Entity data, its entities, the
+area it needs) are checked on the selected template only.
 
 ### Blocks from unavailable mods
 
