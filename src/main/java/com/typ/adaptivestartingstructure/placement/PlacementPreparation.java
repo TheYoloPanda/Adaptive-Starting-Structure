@@ -83,7 +83,13 @@ public final class PlacementPreparation {
         ChunkTicketLease lease = null;
         PreparedTemplateEntities entities = null;
         try {
-            lease = ChunkTicketLease.acquire(level, chunks);
+            /*
+             * The generated terrain rejects most unsuitable sites and reads
+             * only the placement area, so the tree observation margin, up to
+             * a ring of chunks more on every side, is generated only for a
+             * site that passes it.
+             */
+            lease = ChunkTicketLease.acquire(level, bounds.requiredChunks());
             GeneratedSiteValidation validation =
                     GeneratedSiteValidator.validate(
                             level,
@@ -91,6 +97,7 @@ public final class PlacementPreparation {
                             structure,
                             bounds,
                             config);
+            lease = lease.extendTo(chunks);
             entities =
                     TemplateEntityPlacementPlanner.prepare(
                             level,
