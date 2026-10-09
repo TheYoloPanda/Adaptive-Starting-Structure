@@ -163,6 +163,7 @@ public final class PlacementPreparation {
                                 + PlacementBounds.MAX_AFFECTED_COLUMNS);
             }
         }
+        TemplatePlacementPlanner.validateBlockEntityRules(definition);
         if (config.placeTemplateEntities()) {
             TemplateEntityPlacementPlanner.validateTemplate(
                     definition,

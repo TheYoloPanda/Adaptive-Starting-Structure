@@ -69,6 +69,13 @@ becomes air in every palette so the structure footprint remains consistent.
 Malformed IDs, invalid properties on available blocks, corrupt NBT, and invalid
 or missing DATA markers still reject the template.
 
+Block Entity data that does not fit its block rejects the template when the
+world is created, whichever palette it appears in: data without an `id`, a
+block entity type that is not registered or that the block does not take, a
+`LootTable` that is not a valid resource location, or data on an explicit-air
+cell. The new world then keeps the vanilla spawn, and the planning notice
+names the rule.
+
 ### Template entities
 
 Template entities remain disabled by default. To restore supported standalone

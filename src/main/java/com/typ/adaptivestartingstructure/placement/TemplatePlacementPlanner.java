@@ -206,14 +206,39 @@ final class TemplatePlacementPlanner {
                 siteAdaptation);
     }
 
-    private static TemplateBlockEntityData prepareBlockEntity(
-            StartingStructurePlan plan,
+    /**
+     * Refuses a template whose block-entity data placement would refuse on
+     * every site, in any palette a site may draw. A block, and so whether it
+     * takes a given block entity, is the same in every rotation.
+     */
+    static void validateBlockEntityRules(StructureDefinition definition) {
+        for (StructureElement element : definition.placementElements()) {
+            CompoundTag nbt = element.blockEntityNbt().orElse(null);
+            if (nbt == null) {
+                continue;
+            }
+            if (element.kind() != StructureElement.Kind.BLOCK) {
+                throw new PlacementPreparationException(
+                        "Explicit air contains BlockEntity NBT at "
+                                + element.position());
+            }
+            for (int palette = 0;
+                    palette < definition.paletteCount();
+                    palette++) {
+                requireValidBlockEntity(
+                        element.position(),
+                        element.stateForPalette(palette),
+                        nbt);
+            }
+        }
+    }
+
+    private static ResourceLocation requireValidBlockEntity(
             BlockPos position,
             BlockState state,
-            int paletteIndex,
-            CompoundTag sourceNbt) {
+            CompoundTag nbt) {
         if (!state.hasBlockEntity()
-                || !sourceNbt.contains(
+                || !nbt.contains(
                         "id",
                         CompoundTag.TAG_STRING)) {
             throw new PlacementPreparationException(
@@ -221,7 +246,7 @@ final class TemplatePlacementPlanner {
                             + position);
         }
         ResourceLocation typeId = ResourceLocation.tryParse(
-                sourceNbt.getString("id"));
+                nbt.getString("id"));
         BlockEntityType<?> type = typeId == null
                 ? null
                 : BuiltInRegistries.BLOCK_ENTITY_TYPE
@@ -232,18 +257,33 @@ final class TemplatePlacementPlanner {
                     "Template BlockEntity type is invalid for "
                             + state + " at " + position);
         }
+        if (nbt.contains(
+                        "LootTable",
+                        CompoundTag.TAG_STRING)
+                && ResourceLocation.tryParse(
+                        nbt.getString("LootTable")) == null) {
+            throw new PlacementPreparationException(
+                    "Template BlockEntity has an invalid loot table at "
+                            + position);
+        }
+        return typeId;
+    }
 
+    private static TemplateBlockEntityData prepareBlockEntity(
+            StartingStructurePlan plan,
+            BlockPos position,
+            BlockState state,
+            int paletteIndex,
+            CompoundTag sourceNbt) {
+        ResourceLocation typeId = requireValidBlockEntity(
+                position,
+                state,
+                sourceNbt);
         CompoundTag nbt = sourceNbt.copy();
         Long lootSeed = null;
         if (nbt.contains(
                 "LootTable",
                 CompoundTag.TAG_STRING)) {
-            if (ResourceLocation.tryParse(
-                    nbt.getString("LootTable")) == null) {
-                throw new PlacementPreparationException(
-                        "Template BlockEntity has an invalid loot table at "
-                                + position);
-            }
             lootSeed = TemplatePlacementSeeds.lootSeed(
                     plan,
                     position,
