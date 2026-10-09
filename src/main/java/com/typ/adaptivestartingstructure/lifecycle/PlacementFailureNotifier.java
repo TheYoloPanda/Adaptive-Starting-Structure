@@ -28,6 +28,10 @@ public final class PlacementFailureNotifier {
         }
     }
 
+    static boolean isWorldEntryBlocked(MinecraftServer server) {
+        return PENDING.hasPending(server);
+    }
+
     public static void onPlayerLoggedIn(
             PlayerEvent.PlayerLoggedInEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) {

@@ -47,6 +47,7 @@ public final class SpawnMarkerPlacement {
             FINAL_SPAWN_STATES = EnumSet.of(
                     StartingStructureSavedData.State.COMPLETE,
                     StartingStructureSavedData.State.AWAITING_DECISION,
+                    StartingStructureSavedData.State.FALLBACK_APPLYING,
                     StartingStructureSavedData.State.SKIPPED);
 
     private SpawnMarkerPlacement() {
@@ -84,12 +85,16 @@ public final class SpawnMarkerPlacement {
      * spawn is final: the structure's once it stands, or the vanilla spawn
      * the world falls back to once every site is rejected, which is in place
      * before anyone logs in. Until then the next start may still build the
-     * structure anywhere.
+     * structure anywhere. Never in a session that is itself refused,
+     * whatever the state: its start may have stopped before putting that
+     * spawn in place, and the mark has to last until a start that does.
      */
     static boolean arrivesAgain(
             CompoundTag persistentData,
-            Optional<StartingStructureSavedData.State> state) {
-        return persistentData.getCompound(Player.PERSISTED_NBT_TAG)
+            Optional<StartingStructureSavedData.State> state,
+            boolean sessionRefused) {
+        return !sessionRefused
+                && persistentData.getCompound(Player.PERSISTED_NBT_TAG)
                         .getBoolean(REFUSED_SESSION_KEY)
                 && state.filter(FINAL_SPAWN_STATES::contains).isPresent();
     }
@@ -223,7 +228,9 @@ public final class SpawnMarkerPlacement {
         Optional<StartingStructureSavedData.State> state =
                 StartingStructureStorage.load(overworld)
                         .map(StartingStructureSavedData::state);
-        if (!arrivesAgain(persistentData, state)) {
+        boolean sessionRefused =
+                PlacementFailureNotifier.isWorldEntryBlocked(server);
+        if (!arrivesAgain(persistentData, state, sessionRefused)) {
             return;
         }
         BlockPos arrival = player.adjustSpawnLocation(

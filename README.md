@@ -400,7 +400,9 @@ the structure and with the vanilla spawn the decision saved.
 If the game dies while `Continue Anyway` is being applied, the world refuses
 to start as well. `blockedStateRecovery = "skip"` loads it with the vanilla
 spawn the decision saved; the bonus chest stays as the interrupted attempt
-left it, which may be partly placed or missing.
+left it, which may be partly placed or missing. A player who joined one of
+the refused sessions then arrives again where the game puts a new player
+around that spawn.
 
 A start refused because placement failed before anything was written needs no
 recovery: the log says nothing was written, and loading again once the cause
