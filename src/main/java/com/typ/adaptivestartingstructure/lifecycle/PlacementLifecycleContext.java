@@ -7,6 +7,7 @@ import com.typ.adaptivestartingstructure.persistence.StartingStructureSavedData;
 import com.typ.adaptivestartingstructure.placement.WorldFinalizationMetrics;
 import com.typ.adaptivestartingstructure.planner.SiteCandidate;
 import java.util.Optional;
+import net.minecraft.core.BlockPos;
 
 interface PlacementLifecycleContext {
     boolean isServerThread();
@@ -25,6 +26,18 @@ interface PlacementLifecycleContext {
     PlacementWork prepare(
             StartingStructureSavedData data,
             ConfigSnapshot config) throws Exception;
+
+    /**
+     * Forgets the Overworld chunks loaded since the server began starting,
+     * which hold terrain generated under the current world spawn.
+     */
+    void discardTrialTerrain() throws Exception;
+
+    /**
+     * Moves the world spawn to {@code spawn}, first discarding the terrain
+     * generated under the current one when the two differ.
+     */
+    void relocateSpawn(BlockPos spawn) throws Exception;
 
     void persistState(StartingStructureSavedData data)
             throws Exception;

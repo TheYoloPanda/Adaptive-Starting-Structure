@@ -16,9 +16,12 @@ import com.typ.adaptivestartingstructure.placement.PreWriteSpawnValidator;
 import com.typ.adaptivestartingstructure.placement.PreparedPlacement;
 import com.typ.adaptivestartingstructure.placement.PreparedTerrainBlending;
 import com.typ.adaptivestartingstructure.placement.PreparedTerrainLeveling;
+import com.typ.adaptivestartingstructure.placement.StartupChunkRecord;
 import com.typ.adaptivestartingstructure.placement.TemplatePlacement;
 import com.typ.adaptivestartingstructure.placement.TerrainBlending;
 import com.typ.adaptivestartingstructure.placement.TerrainLeveling;
+import com.typ.adaptivestartingstructure.placement.TrialTerrainDiscard;
+import com.typ.adaptivestartingstructure.placement.TrialTerrainDiscardResult;
 import com.typ.adaptivestartingstructure.placement.UnsuitableGeneratedSiteException;
 import com.typ.adaptivestartingstructure.placement.WorldFinalization;
 import com.typ.adaptivestartingstructure.placement.WorldFinalizationMetrics;
@@ -28,6 +31,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.TimeUnit;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
@@ -39,10 +43,12 @@ public final class PlacementLifecycle {
     }
 
     public static void onServerStarting(
-            ServerStartingEvent event) {
+            ServerStartingEvent event,
+            StartupChunkRecord startupChunks) {
         Objects.requireNonNull(event, "event");
+        Objects.requireNonNull(startupChunks, "startupChunks");
         try {
-            run(new EventContext(event.getServer()));
+            run(new EventContext(event.getServer(), startupChunks));
         } catch (Exception exception) {
             AdaptiveStartingStructure.LOGGER.error(
                     "Adaptive starting-structure placement blocked world entry; "
@@ -51,6 +57,8 @@ public final class PlacementLifecycle {
             PlacementFailureNotifier.blockWorldEntry(
                     event.getServer(),
                     exception);
+        } finally {
+            startupChunks.stop();
         }
     }
 
@@ -296,12 +304,29 @@ public final class PlacementLifecycle {
             ConfigSnapshot config) throws Exception {
         while (true) {
             try {
+                context.relocateSpawn(
+                        data.plan().candidate().worldSpawn());
                 return Optional.of(
                         context.prepare(data, config));
             } catch (UnsuitableGeneratedSiteException failure) {
                 var rejected = data.plan().candidate();
                 if (failure.internalInconsistency()) {
                     context.logInternalInconsistency(rejected, failure);
+                }
+                /*
+                 * Discarded while the site is still the current one: if the
+                 * discard fails, the next start prepares this site again and
+                 * so loads whatever of its terrain this start left behind.
+                 */
+                try {
+                    context.discardTrialTerrain();
+                } catch (Exception discardFailure) {
+                    discardFailure.addSuppressed(failure);
+                    keepPlannedOrFail(
+                            context,
+                            data,
+                            discardFailure);
+                    throw discardFailure;
                 }
                 OptionalInt discardedSiteCandidates;
                 try {
@@ -324,6 +349,14 @@ public final class PlacementLifecycle {
                         decision =
                                 context.createFallbackDecision(
                                         failure);
+                        /*
+                         * Finding the vanilla spawn generates chunks under
+                         * the rejected site's spawn, and a start that finds
+                         * the decision recorded moves to it without
+                         * discarding anything, so the move comes first.
+                         */
+                        context.relocateSpawn(
+                                decision.vanillaSpawn());
                     } catch (Exception fallbackFailure) {
                         fallbackFailure.addSuppressed(
                                 failure);
@@ -549,15 +582,21 @@ public final class PlacementLifecycle {
             implements PlacementLifecycleContext {
         private final MinecraftServer server;
         private final ServerLevel level;
+        private final StartupChunkRecord startupChunks;
         private StructureDefinition selected;
 
-        private EventContext(MinecraftServer server) {
+        private EventContext(
+                MinecraftServer server,
+                StartupChunkRecord startupChunks) {
             this.server = Objects.requireNonNull(
                     server,
                     "server");
             this.level = Objects.requireNonNull(
                     server.overworld(),
                     "overworld");
+            this.startupChunks = Objects.requireNonNull(
+                    startupChunks,
+                    "startupChunks");
         }
 
         @Override
@@ -663,9 +702,6 @@ public final class PlacementLifecycle {
         public PlacementWork prepare(
                 StartingStructureSavedData data,
                 ConfigSnapshot config) throws Exception {
-            SpawnRelocation.apply(
-                    level,
-                    data.plan().candidate().worldSpawn());
             PreparedPlacement prepared =
                     PlacementPreparation.prepare(
                             level,
@@ -712,6 +748,14 @@ public final class PlacementLifecycle {
                             "Prepared snow cover on {} columns the blend or tree cleanup uncovers",
                             blending.plan().restoredSnowLayers());
                 }
+                /*
+                 * Only the site that is kept gets the chunks vanilla keeps
+                 * loaded around the spawn: each site tried before it would
+                 * have had them generated, and discarded with it.
+                 */
+                SpawnRelocation.apply(
+                        level,
+                        data.plan().candidate().worldSpawn());
                 return new ServerPlacementWork(
                         prepared,
                         terrain,
@@ -728,6 +772,60 @@ public final class PlacementLifecycle {
                 }
                 throw failure;
             }
+        }
+
+        @Override
+        public void discardTrialTerrain() {
+            BlockPos spawn = level.getLevelData().getSpawnPos();
+            TrialTerrainDiscardResult result =
+                    TrialTerrainDiscard.discard(
+                            level,
+                            startupChunks.loaded(),
+                            startupChunks.saved(),
+                            () -> SpawnRelocation.releaseSpawnChunks(
+                                    level));
+            if (result.discardedChunks() > 0) {
+                AdaptiveStartingStructure.LOGGER.info(
+                        "Discarded the terrain generated under world spawn {}: {} chunks ({} complete) "
+                                + "and {} entities, none left in the region files, in {} ms "
+                                + "({} ms waiting for generation already running, {} chunk ticks)",
+                        spawn,
+                        result.discardedChunks(),
+                        result.fullChunks(),
+                        result.removedEntities(),
+                        TimeUnit.NANOSECONDS.toMillis(
+                                result.elapsedNanos()),
+                        TimeUnit.NANOSECONDS.toMillis(
+                                result.settleNanos()),
+                        result.ticks());
+            }
+            if (result.keptChunks() > 0) {
+                AdaptiveStartingStructure.LOGGER.warn(
+                        "{} chunks generated under world spawn {} stay loaded because a ticket "
+                                + "Adaptive Starting Structure does not own holds them; they keep "
+                                + "what they derived from that spawn",
+                        result.keptChunks(),
+                        spawn);
+            }
+            if (result.savedChunks() > 0) {
+                AdaptiveStartingStructure.LOGGER.warn(
+                        "{} of the discarded chunks had been saved complete by an earlier start "
+                                + "of this world; their blocks are cleared, but the entities saved "
+                                + "with them stay in the world's entity files and come back if "
+                                + "those chunks generate again",
+                        result.savedChunks());
+            }
+        }
+
+        @Override
+        public void relocateSpawn(BlockPos spawn) {
+            if (level.getLevelData()
+                    .getSpawnPos()
+                    .equals(spawn)) {
+                return;
+            }
+            discardTrialTerrain();
+            SpawnRelocation.moveAfterDiscard(level, spawn);
         }
 
         @Override

@@ -18,6 +18,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.level.ChunkEvent;
 import net.neoforged.neoforge.event.level.ChunkTicketLevelUpdatedEvent;
 import net.neoforged.neoforge.event.server.ServerAboutToStartEvent;
+import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import org.slf4j.Logger;
 
@@ -45,7 +46,10 @@ public final class AdaptiveStartingStructure {
         NeoForge.EVENT_BUS.addListener(
                 SpawnPlanningLifecycle::onCreateSpawnPosition);
         NeoForge.EVENT_BUS.addListener(
-                PlacementLifecycle::onServerStarting);
+                ServerStartingEvent.class,
+                event -> PlacementLifecycle.onServerStarting(
+                        event,
+                        startupChunks));
         NeoForge.EVENT_BUS.addListener(
                 PlacementFailureNotifier::onPlayerLoggedIn);
         NeoForge.EVENT_BUS.addListener(
