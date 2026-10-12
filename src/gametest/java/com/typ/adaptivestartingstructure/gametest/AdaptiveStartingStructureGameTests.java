@@ -5,6 +5,10 @@ import com.typ.adaptivestartingstructure.lifecycle.VanillaSpawnFallback;
 import com.typ.adaptivestartingstructure.persistence.FallbackDecision;
 import com.typ.adaptivestartingstructure.persistence.StartingStructureSavedData;
 import com.typ.adaptivestartingstructure.persistence.StartingStructureStorage;
+import com.typ.adaptivestartingstructure.placement.TrialTerrainDiscard;
+import com.typ.adaptivestartingstructure.placement.TrialTerrainDiscardResult;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -13,10 +17,15 @@ import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.server.level.ChunkLevel;
+import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.TicketType;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.animal.Pig;
 import net.minecraft.world.entity.decoration.ItemFrame;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
@@ -28,6 +37,22 @@ import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 public final class AdaptiveStartingStructureGameTests {
     private static final BlockPos EXPECTED_SPAWN =
             new BlockPos(8, -59, 8);
+    private static final TicketType<ChunkPos> DISCARD_TEST_TICKET =
+            TicketType.create(
+                    "adaptive_starting_structure:discard_test",
+                    Comparator.comparingLong(ChunkPos::toLong));
+    /*
+     * Far from the test structures, and far enough apart that their
+     * generation pyramids do not touch.
+     */
+    private static final ChunkPos DISCARDED_CHUNK =
+            new ChunkPos(640, 640);
+    private static final ChunkPos KEPT_CHUNK =
+            new ChunkPos(700, 640);
+    private static final int PYRAMID_WIDTH =
+            2 * ChunkLevel.RADIUS_AROUND_FULL_CHUNK + 1;
+    private static final int PYRAMID_CHUNKS =
+            PYRAMID_WIDTH * PYRAMID_WIDTH;
 
     private AdaptiveStartingStructureGameTests() {
     }
@@ -331,6 +356,101 @@ public final class AdaptiveStartingStructureGameTests {
                     "Item-frame support block is missing");
             helper.succeed();
         });
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 20)
+    public static void trialTerrainDiscardForgetsWhatItUnloads(
+            GameTestHelper helper) {
+        ServerLevel overworld =
+                helper.getLevel().getServer().overworld();
+        ServerChunkCache chunks = overworld.getChunkSource();
+        chunks.addRegionTicket(
+                DISCARD_TEST_TICKET,
+                DISCARDED_CHUNK,
+                0,
+                DISCARDED_CHUNK);
+        chunks.addRegionTicket(
+                DISCARD_TEST_TICKET,
+                KEPT_CHUNK,
+                0,
+                KEPT_CHUNK);
+        try {
+            overworld.getChunk(DISCARDED_CHUNK.x, DISCARDED_CHUNK.z);
+            overworld.getChunk(KEPT_CHUNK.x, KEPT_CHUNK.z);
+            Pig pig = EntityType.PIG.create(overworld);
+            require(pig != null, "Could not create the test pig");
+            pig.moveTo(
+                    DISCARDED_CHUNK.getMiddleBlockX(),
+                    EXPECTED_SPAWN.getY(),
+                    DISCARDED_CHUNK.getMiddleBlockZ(),
+                    0.0F,
+                    0.0F);
+            require(
+                    overworld.addFreshEntity(pig),
+                    "The test pig did not join the world");
+
+            TrialTerrainDiscardResult result =
+                    TrialTerrainDiscard.discard(
+                            overworld,
+                            chunksAround(DISCARDED_CHUNK, KEPT_CHUNK),
+                            new LongOpenHashSet(),
+                            () -> chunks.removeRegionTicket(
+                                    DISCARD_TEST_TICKET,
+                                    DISCARDED_CHUNK,
+                                    0,
+                                    DISCARDED_CHUNK));
+
+            require(
+                    result.discardedChunks() == PYRAMID_CHUNKS,
+                    "Expected " + PYRAMID_CHUNKS + " discarded chunks: " + result);
+            require(
+                    result.keptChunks() == PYRAMID_CHUNKS,
+                    "Expected " + PYRAMID_CHUNKS + " kept chunks: " + result);
+            require(
+                    result.fullChunks() == 1,
+                    "Expected one complete discarded chunk: " + result);
+            require(
+                    pig.isRemoved() && result.removedEntities() >= 1,
+                    "The pig in the discarded chunk was not removed: " + result);
+            require(
+                    chunks.chunkMap.getVisibleChunkIfPresent(
+                                    DISCARDED_CHUNK.toLong())
+                            == null,
+                    "The discarded chunk is still loaded");
+            require(
+                    chunks.chunkMap.read(DISCARDED_CHUNK)
+                            .join()
+                            .isEmpty(),
+                    "The discarded chunk is still in its region file");
+            require(
+                    chunks.getChunkNow(KEPT_CHUNK.x, KEPT_CHUNK.z) != null,
+                    "The chunk another ticket holds was unloaded");
+        } finally {
+            chunks.removeRegionTicket(
+                    DISCARD_TEST_TICKET,
+                    KEPT_CHUNK,
+                    0,
+                    KEPT_CHUNK);
+            chunks.removeRegionTicket(
+                    DISCARD_TEST_TICKET,
+                    DISCARDED_CHUNK,
+                    0,
+                    DISCARDED_CHUNK);
+        }
+        helper.succeed();
+    }
+
+    private static LongSet chunksAround(ChunkPos... centers) {
+        LongSet chunks = new LongOpenHashSet();
+        int radius = ChunkLevel.RADIUS_AROUND_FULL_CHUNK;
+        for (ChunkPos center : centers) {
+            for (int x = center.x - radius; x <= center.x + radius; x++) {
+                for (int z = center.z - radius; z <= center.z + radius; z++) {
+                    chunks.add(ChunkPos.asLong(x, z));
+                }
+            }
+        }
+        return chunks;
     }
 
     private static boolean containsChestNearSpawn(
