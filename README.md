@@ -388,6 +388,29 @@ extent unchanged are judged together, and count once against
 The search itself does not read the world seed. Positions come from the
 lattice, and the seed decides the terrain those positions are judged on.
 
+### A rejected site's terrain
+
+A site is judged on its generated terrain, so its chunks are generated before
+the verdict, under that site's world spawn: mods that derive world generation
+from the spawn, such as distance-based ore gating, read it while the chunks
+generate. When a site is rejected, its terrain is thrown away before the spawn
+moves on, to the next site or, once none is left, to the vanilla spawn. Every
+Overworld chunk the server loaded while starting is unloaded without being
+saved, the entities that generated in it are removed, and it is cleared from
+the region files. Minecraft generates those chunks again, under the spawn the
+world ends up with, when something next needs them. The chunks vanilla keeps
+loaded around the spawn are generated only for the site that is kept, except
+those around the first site, which vanilla prepares before placement begins.
+Nothing needs configuring.
+
+The log reports each discard: its chunks, its entities and how long it took.
+A chunk that another mod keeps loaded with its own ticket cannot be discarded;
+the log counts such chunks, and they keep the terrain generated under the old
+spawn. If an earlier start of the same world stopped during placement and
+saved part of that terrain, its blocks are cleared like the rest, but the
+entities saved with it stay, and come back if those chunks are generated
+again; the log says so when it happens.
+
 ### Changing the configuration after a world is created
 
 A world is planned when it is created and built the first time it is loaded,
