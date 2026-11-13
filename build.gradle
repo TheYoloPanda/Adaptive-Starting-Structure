@@ -2,6 +2,7 @@ plugins {
     id 'java-library'
     id 'maven-publish'
     id 'net.neoforged.moddev' version '2.0.142'
+    id 'me.modmuss50.mod-publish-plugin' version '2.2.1'
     id 'idea'
 }
 
@@ -343,6 +344,59 @@ def verifyReleaseJar = tasks.register('verifyReleaseJar') {
 
 tasks.named('build').configure {
     dependsOn(verifyReleaseJar)
+}
+
+def releaseChangelog = providers
+        .fileContents(layout.projectDirectory.file('CHANGELOG.md'))
+        .asText
+        .map { text ->
+            def lines = text.readLines()
+            def heading = ~/##\s+${java.util.regex.Pattern.quote(releaseVersion)}(\s.*)?/
+            def start = lines.findIndexOf { it ==~ heading }
+            if (start < 0) {
+                throw new GradleException(
+                        "CHANGELOG.md has no '## ${releaseVersion}' section")
+            }
+            def end = lines.findIndexOf(start + 1) { it.startsWith('## ') }
+            def section = lines
+                    .subList(start + 1, end < 0 ? lines.size() : end)
+                    .join('\n')
+                    .trim()
+            if (section.isEmpty()) {
+                throw new GradleException(
+                        "CHANGELOG.md section '## ${releaseVersion}' is empty")
+            }
+            section
+        }
+
+publishMods {
+    file = releaseJar
+    changelog = releaseChangelog
+    type = STABLE
+    displayName = "${mod_name} ${mod_version}"
+    modLoaders.add('neoforge')
+    dryRun = providers.gradleProperty('publishDryRun').map { true }.orElse(false)
+
+    curseforge {
+        projectId = curseforge_project_id
+        accessToken = providers.gradleProperty('curseforgeToken')
+        minecraftVersions.add(minecraft_version)
+        javaVersions.add(JavaVersion.VERSION_21)
+        client = true
+        server = true
+    }
+
+    modrinth {
+        projectId = modrinth_project_id
+        accessToken = providers.gradleProperty('modrinthToken')
+        minecraftVersions.add(minecraft_version)
+        // Vanilla clients on a dedicated server see the mod's chat notices as raw translation keys.
+        environment = SERVER_ONLY_CLIENT_OPTIONAL
+    }
+}
+
+tasks.withType(me.modmuss50.mpp.PublishModTask).configureEach {
+    dependsOn(tasks.named('build'))
 }
 
 // IDEA no longer automatically downloads sources/javadoc jars for dependencies, so we need to explicitly enable the behavior.
