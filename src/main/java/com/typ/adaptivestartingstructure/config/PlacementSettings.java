@@ -87,6 +87,7 @@ public record PlacementSettings(
                 config.ignoredStructureCollisions(),
                 config.blendDepthAllowance(),
                 config.adaptTemplateToSite(),
+                config.warnAboutFixedOreGateCenter(),
                 config.biomeListEdits());
     }
 }

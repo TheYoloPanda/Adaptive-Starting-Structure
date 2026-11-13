@@ -2,6 +2,7 @@
   "message.adaptive_starting_structure.prefix": "[Adaptive Starting Structure]",
   "message.adaptive_starting_structure.planning_failure": "%1$s Structure not generated: %2$s. Vanilla spawn was used. Check the server log for details.",
   "message.adaptive_starting_structure.continued_without_structure": "%1$s The starting structure could not be placed in this world: no safe location was found near the spawn. The world uses Minecraft's normal spawn, and the structure will never be generated here. Not intended: this may affect the modpack's intended progression. Creating a new world, for example with a different seed, is recommended.",
+  "message.adaptive_starting_structure.fixed_ore_gate_center": "%1$s Radial Resource Gating centers its overworld ore gate on the fixed point %2$s, %3$s with range %4$s, but the starting structure moved the world spawn to %5$s, %6$s, so players may start outside the gated ring. Set Radial Resource Gating's overworld centerMode to \"world_spawn\" to keep the ring around the spawn, or set warnAboutFixedOreGateCenter to false in adaptive_starting_structure-common.toml if the fixed center is intended.",
   "message.adaptive_starting_structure.reason.configuration": "invalid configuration: %1$s",
   "message.adaptive_starting_structure.reason.invalid_structure": "structure \"%1$s\" is invalid: %2$s",
   "message.adaptive_starting_structure.reason.template_not_placeable": "the selected structure cannot be placed: %1$s",

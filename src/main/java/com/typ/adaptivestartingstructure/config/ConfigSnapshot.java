@@ -37,6 +37,7 @@ public record ConfigSnapshot(
         Set<ResourceLocation> ignoredStructureCollisions,
         int blendDepthAllowance,
         boolean adaptTemplateToSite,
+        boolean warnAboutFixedOreGateCenter,
         BiomeListEdits biomeListEdits) {
 
     private static final Set<ResourceLocation> BASE_PREFERRED_BIOMES = resourceLocations(
@@ -136,6 +137,7 @@ public record ConfigSnapshot(
                 Set.of(),
                 0,
                 false,
+                ModConfig.DEFAULT_WARN_ABOUT_FIXED_ORE_GATE_CENTER,
                 BiomeListEdits.NONE);
     }
 
@@ -296,7 +298,8 @@ public record ConfigSnapshot(
             boolean placePlayerAtSpawnMarker,
             List<? extends String> ignoredStructureCollisions,
             int blendDepthAllowance,
-            boolean adaptTemplateToSite) {
+            boolean adaptTemplateToSite,
+            boolean warnAboutFixedOreGateCenter) {
         BiomeListEdits.ListEdit preferredEdit = listEdit(
                 BASE_PREFERRED_BIOMES,
                 "additionalPreferredBiomes",
@@ -348,6 +351,7 @@ public record ConfigSnapshot(
                         ignoredStructureCollisions),
                 blendDepthAllowance,
                 adaptTemplateToSite,
+                warnAboutFixedOreGateCenter,
                 new BiomeListEdits(preferredEdit, excludedEdit));
     }
 

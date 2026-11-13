@@ -53,6 +53,7 @@ public final class ModConfig {
     static final List<String> DEFAULT_IGNORED_STRUCTURE_COLLISIONS = List.of(
             "ae2:meteorite");
     static final boolean DEFAULT_PLACE_PLAYER_AT_SPAWN_MARKER = true;
+    static final boolean DEFAULT_WARN_ABOUT_FIXED_ORE_GATE_CENTER = true;
     static final String DEFAULT_BLOCKED_STATE_RECOVERY =
             BlockedStateRecovery.BLOCK.configValue();
     static final List<String> DEFAULT_ALLOWED_ROTATIONS = List.of(
@@ -144,6 +145,7 @@ public final class ModConfig {
         private final ModConfigSpec.ConfigValue<List<? extends String>> ignoredStructureCollisions;
         private final ModConfigSpec.ConfigValue<String> blockedStateRecovery;
         private final ModConfigSpec.BooleanValue placePlayerAtSpawnMarker;
+        private final ModConfigSpec.BooleanValue warnAboutFixedOreGateCenter;
 
         private Values(ModConfigSpec.Builder builder) {
             enabled = builder
@@ -377,6 +379,18 @@ public final class ModConfig {
                     .define(
                             "placePlayerAtSpawnMarker",
                             DEFAULT_PLACE_PLAYER_AT_SPAWN_MARKER);
+            warnAboutFixedOreGateCenter = builder
+                    .comment(
+                            "Whether the singleplayer host and operators are told once per world, in chat "
+                                    + "and in the log, when Radial Resource Gating centers its overworld ore "
+                                    + "gate on a fixed point.",
+                            "The structure can move the world spawn up to maximumSearchRadius blocks away, "
+                                    + "so a fixed center can leave the player outside the gated ring. "
+                                    + "Set its centerMode to world_spawn, or this to false if the fixed "
+                                    + "center is intended.")
+                    .define(
+                            "warnAboutFixedOreGateCenter",
+                            DEFAULT_WARN_ABOUT_FIXED_ORE_GATE_CENTER);
         }
 
         private ConfigSnapshot snapshot(boolean defaults) {
@@ -409,7 +423,8 @@ public final class ModConfig {
                     read(placePlayerAtSpawnMarker, defaults),
                     read(ignoredStructureCollisions, defaults),
                     read(blendDepthAllowance, defaults),
-                    read(adaptTemplateToSite, defaults));
+                    read(adaptTemplateToSite, defaults),
+                    read(warnAboutFixedOreGateCenter, defaults));
         }
 
         private static <T> T read(ModConfigSpec.ConfigValue<T> value, boolean defaults) {

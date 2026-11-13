@@ -2,6 +2,7 @@ package com.typ.adaptivestartingstructure;
 
 import com.mojang.logging.LogUtils;
 import com.typ.adaptivestartingstructure.config.ModConfig;
+import com.typ.adaptivestartingstructure.lifecycle.FixedOreGateCenterNotice;
 import com.typ.adaptivestartingstructure.lifecycle.NoStructureNotice;
 import com.typ.adaptivestartingstructure.lifecycle.PlacementLifecycle;
 import com.typ.adaptivestartingstructure.lifecycle.PlacementFailureNotifier;
@@ -64,6 +65,8 @@ public final class AdaptiveStartingStructure {
                 SpawnMarkerPlacement::onPlayerLoggedIn);
         NeoForge.EVENT_BUS.addListener(
                 NoStructureNotice::onPlayerLoggedIn);
+        NeoForge.EVENT_BUS.addListener(
+                FixedOreGateCenterNotice::onPlayerLoggedIn);
         NeoForge.EVENT_BUS.addListener(
                 SpawnMarkerPlacement::onRespawnPosition);
     }

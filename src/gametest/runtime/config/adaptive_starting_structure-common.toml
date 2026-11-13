@@ -106,3 +106,6 @@ blockedStateRecovery = "block"
 #Vanilla picks a column near the world spawn and puts the player on that column's surface, which for a structure with a roof is the roof, so the marker is otherwise rarely where anyone actually arrives.
 #Only applies to players with no bed or charged respawn anchor who arrive inside the vanilla spawn area: once per player at login, and on every respawn that falls back to the world spawn.
 placePlayerAtSpawnMarker = true
+#Whether the singleplayer host and operators are told once per world, in chat and in the log, when Radial Resource Gating centers its overworld ore gate on a fixed point.
+#The structure can move the world spawn up to maximumSearchRadius blocks away, so a fixed center can leave the player outside the gated ring. Set its centerMode to world_spawn, or this to false if the fixed center is intended.
+warnAboutFixedOreGateCenter = true
