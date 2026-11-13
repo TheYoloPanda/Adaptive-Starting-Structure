@@ -1,500 +1,107 @@
 # Adaptive Starting Structure
 
-Adaptive Starting Structure is a NeoForge 1.21.1 mod that selects an external
-Minecraft structure template when a new world is created, finds a suitable
-site near the initial spawn, adapts the terrain, and places the structure
-before the player joins.
+A NeoForge 1.21.1 mod for modpacks that want every world to start in a
+specific structure. When a new world is created, the mod picks one of your
+`.nbt` templates, looks for a good spot near spawn, reshapes the terrain around
+it and builds it before the player joins. The world spawn is moved onto the
+structure.
 
-Structure templates are loaded from:
+## Adding a structure
+
+Put your templates in:
 
 ```text
 config/adaptive_starting_structure/structures/
 ```
 
-Every regular file directly in that folder whose name ends in `.nbt` belongs
-to the pool; subfolders and other files are ignored. The pool has to be
-clean: a name outside `[a-z0-9_.-]+` (an uppercase letter, a space), the
-`.nbt` extension in another case, two names that differ only by case, a
-symbolic link or an unreadable file makes planning fail for every new world,
-which then keeps the vanilla spawn while the planning notice names the file.
-So does a folder without any `.nbt` file.
+Only `.nbt` files directly in that folder are used. Keep the file names
+lowercase, using only letters, numbers, `_`, `-` and `.`. A bad name or an
+empty folder makes every new world fall back to the vanilla spawn. With more
+than one template, the world seed picks which one is used.
 
-## ⚠️ Required DATA markers
+Blocks from mods that aren't installed are replaced with air, and the log
+lists them.
 
-Every structure template must contain exactly two
-`minecraft:structure_block` blocks in `DATA` mode:
+### Markers
 
-| Custom Data value | Meaning |
+Each template needs exactly two structure blocks in `DATA` mode, with one of
+these values in the Custom Data field:
+
+| Custom Data | Marks |
 | --- | --- |
-| `adaptive_starting_structure:spawn` | Marks the world-spawn center and its feet-level reference position. Vanilla may still place players nearby according to `spawnRadius`. |
-| `adaptive_starting_structure:ground_level` | Marks one block above the intended terrain plane. The terrain level is `marker Y - 1`. |
+| `adaptive_starting_structure:spawn` | Where players spawn (feet position) |
+| `adaptive_starting_structure:ground_level` | One block above the ground the structure sits on |
 
-These are authoring markers only. The mod reads their positions directly from
-the template NBT and replaces both marker blocks with air during placement. It
-does not invoke vanilla's hardcoded DATA-marker behavior.
+Both are replaced with air when the structure is built. A template with a
+missing, duplicated or unknown marker is rejected.
 
-The X/Z coordinates of `ground_level` do not define a second terrain shape;
-they only need to keep that marker inside the template.
+`DATA` mode is hidden in the structure block screen. Switch the mode to
+`CORNER`, then hold `Alt` and click the mode button once. Type the value and
+press `Done` (`Esc` throws the change away).
 
-### How to enable the hidden DATA mode
-
-In Minecraft Java Edition 1.21.1, the normal mode selector only cycles through
-`SAVE`, `LOAD`, and `CORNER`. `DATA` is deliberately hidden.
-
-1. Enter Creative mode with commands enabled.
-2. Obtain a Structure Block:
-
-   ```mcfunction
-   /give @s minecraft:structure_block
-   ```
-
-3. Place it at the position that should become a marker and open its interface.
-4. Set the visible mode to `CORNER`.
-5. Hold `Alt` and, without releasing it, click the `CORNER` mode button once.
-   It should change to `DATA`.
-6. Enter one of the exact marker values above in the `Custom Data` field.
-7. Select `Done`. Closing the screen with `Esc` cancels the change.
-8. Repeat the process for the other marker.
-9. Make sure both blocks are inside the region included in the exported NBT.
-
-The template is rejected if either marker is missing, duplicated, outside the
-template, not in `DATA` mode, or uses unknown Custom Data.
-
-Every template in the pool is read and checked this way, its markers, palettes
-and NBT, whenever a world is created, so one malformed file makes planning
-fail even when the world would have selected another one. The rules further
-down that concern placing a template (its Block Entity data, its entities, the
-area it needs) are checked on the selected template only.
-
-### Blocks from unavailable mods
-
-If a template references a block whose registry ID is not available in the
-current runtime registry, the mod replaces every template position that uses
-that palette state with explicit air and continues loading the structure. This
-removes any existing terrain at the affected position. Any Block Entity NBT
-attached to that position is discarded.
-
-The server log reports the unavailable block IDs and the number of replaced
-positions. With alternative palettes, a state index unavailable in any palette
-becomes air in every palette so the structure footprint remains consistent.
-Malformed IDs, invalid properties on available blocks, corrupt NBT, and invalid
-or missing DATA markers still reject the template.
-
-Block Entity data that does not fit its block rejects the template when the
-world is created, whichever palette it appears in: data without an `id`, a
-block entity type that is not registered or that the block does not take, a
-`LootTable` that is not a valid resource location, or data on an explicit-air
-cell. The new world then keeps the vanilla spawn, and the planning notice
-names the rule.
-
-### Template entities
-
-Template entities remain disabled by default. To restore supported standalone
-entities saved in the `.nbt`, enable:
-
-```toml
-placeTemplateEntities = true
-```
-
-Entities are prepared before terrain or template placement and published only
-after the final block, light, heightmap, fluid, and spawn checks. Fractional
-positions and authored NBT are preserved, root UUIDs are regenerated, and mobs
-are not rerolled through natural-spawn finalization. Paintings, item frames,
-and other block-attached entities use their transformed template anchor and
-must remain supported by the final blocks. For paintings, item frames and
-leash knots that support is checked before anything is written, on the blocks
-the site will hold: a site where the terrain or the blend leaves one of them
-without its wall, fence or free space is skipped for the next one.
-
-Missing, malformed, unavailable, feature-disabled, non-serializable, or
-unloadable entity entries are skipped with a warning that identifies the
-template and source index. Player entities and passenger trees are rejected.
-Enabled placement also rejects templates exceeding 128 root entities, 4 MiB of
-aggregate uncompressed entity NBT, or NBT nesting depth 64, templates with
-two block-attached entities on one anchor or with overlapping boxes, and
-templates whose own blocks cannot hold one of their paintings, item frames or
-leash knots in some palette: a support cell the template leaves as air or as
-a block that is not solid, a knot on a template cell that is not a fence, or a
-template block inside the entity. A support outside the template's cells is
-left to the site.
-Entity-addition failure after block placement is fail-closed and prevents the
-world from being marked complete.
-
-With the option on when a world is created, a template breaking one of these
-rules is rejected before the world is changed: the world keeps the vanilla
-spawn and the planning notice names the rule, as for an invalid template. For
-the block-attached rules the template's entities are created, never added to
-the world, and discarded. Turning the option on for a world that is already
-planned leaves the check to its first load.
-
-### Fitting the template to the site
-
-A template carries its own ground, so by default it takes the site's materials
-when it is placed:
-
-```toml
-adaptTemplateToSite = true
-```
-
-The site's surface and filler are the most common ones over the footprint and
-the blend ring, read from the generated terrain. When one surface covers at
-least half of those columns and is a full solid block, every `grass_block` of
-the template becomes that surface, and the `dirt` stacked right under it
-becomes the filler: in a desert the structure stands on sand instead of a green
-patch. Other dirt in the template is left as authored. A stack hanging over air
-ends on the block worldgen puts on ceilings (sandstone under sand, stone under
-gravel, red sandstone under red sand), or stays as authored when its material
-would fall and has no such counterpart. A plant standing on the template's
-replaced grass, such as grass, a flower or a sapling, is removed whenever the
-new surface is neither in the `minecraft:dirt` block tag nor farmland, even if
-it could grow there, as a dead bush can on sand. In a cold biome the
-template's open tops also get a snow layer, as the land around them does,
-except within reach of its own light.
-
-The server log names the materials chosen and counts what changed. With
-`adaptTemplateToSite = false` the template is placed exactly as authored.
-
-### Underground spawn markers and safety validation
-
-The `spawn` marker may be below `ground_level`. This is valid: `ground_level`
-aligns the structure with the terrain, while `spawn` independently identifies
-the intended spawn position inside the structure.
-
-By default, the mod validates only the exact `spawn` marker column. It checks
-for player-sized free space, a safe floor, dangerous blocks, fluids, and
-excessive falling distance. It does not require the entire vanilla
-`spawnRadius` square to be safe, so an intentionally underground spawn does not
-prevent the structure from being selected.
-
-Before anything is written, the spawn is checked on the generated world with
-the planned terrain and template changes in place: a site where it would
-stand over a cave, water or lava that the template does not cover is skipped
-for the next one.
-
-Set the following common config option to `true` only if every possible vanilla
-spawn column in the full `spawnRadius` area must pass the same checks:
-
-```toml
-requireSafeSpawnArea = true
-```
-
-The area is the square `2 × spawnRadius + 1` blocks wide centred on the
-marker, and all of it must lie inside the template's horizontal bounds: with
-the default `spawnRadius` of 10 the template has to reach 10 blocks past the
-marker on every side, 21 blocks across with the marker in the middle. A
-smaller template, or a marker nearer an edge, fails this check on every site,
-so the world keeps the vanilla spawn without the structure. Each column of the
-square is checked from the marker's feet height, allowing a fall of at most
-three blocks onto a safe floor, and not on the top of the column, which is
-where vanilla actually puts an arriving player.
-
-This option never changes the vanilla `spawnRadius` gamerule, and it does not
-decide where anyone arrives: that is settled by `placePlayerAtSpawnMarker`
-below.
-
-The two work together. The area is only checked when vanilla is free to pick
-the arrival column, so with `placePlayerAtSpawnMarker` left on this option does
-nothing: the marker's own column is the only one anyone stands on, and proving
-the other 440 would cost one noise column each, for every candidate site. Turn
-`placePlayerAtSpawnMarker` off to make it bite.
-
-### Arriving on the spawn marker
-
-Setting the world spawn to the marker is not enough to arrive there. Vanilla
-picks a column within `spawnRadius` of the world spawn and puts the player on
-that column's surface, which for a structure with a roof is the roof. Setting
-the gamerule to `0` does not help: the single column it then considers is
-still resolved to its surface.
-
-The mod therefore moves arriving players onto the marker itself:
-
-```toml
-placePlayerAtSpawnMarker = true
-```
-
-This applies to a player with no bed or charged respawn anchor who arrives
-inside the area the vanilla search could have chosen from. At login it happens
-once per player: the first login after the structure is built settles it,
-whether or not that player is moved, and later logins leave the player where
-the game puts them. A respawn that falls back to the world spawn, including
-one whose bed was destroyed, is moved every time. Set it to `false` in a pack
-that manages spawning itself.
-
-### Customizing the biome lists
-
-`additionalPreferredBiomes` and `additionalExcludedBiomes` add to the built-in
-lists; `removedPreferredBiomes` and `removedExcludedBiomes` take entries out of
-them, which is the only way to reach an ID the mod hardcodes:
-
-```toml
-removedExcludedBiomes = ["minecraft:meadow"]
-excludedBiomeTags = ["minecraft:is_ocean", "minecraft:is_river", "minecraft:is_beach"]
-removedPreferredBiomes = ["minecraft:badlands"]
-```
-
-`excludedBiomeTags` is the whole tag list rather than an addition to a hidden
-one, so a pack edits it directly. A biome in an excluded tag stays excluded
-whatever the ID lists say, and the default `minecraft:is_mountain` tag holds
-meadows, so the example leaves that tag out: its other vanilla members, the
-peaks, the snowy slopes and the cherry grove, are on the built-in excluded
-list anyway, while a modded biome kept out only by that tag is let in too.
-
-Biome and tag IDs the server's registry does not have are ignored with a
-warning naming them, so a pack that lists another mod's biome and later drops
-that mod keeps its starting structure. Naming an ID the defaults already list
-is redundant rather than an error. A second warning names the entries that
-change nothing: a removed ID the registry or its list does not have, an ID
-both added and removed, and a preferred biome, or one removed from the
-excluded list, that an excluded tag still covers.
-
-### Terrain blending and trees
-
-Terrain is blended only inside the configured bounded placement area. Tree
-analysis uses a fixed 12-block observation margin beyond that area without
-extending the terrain blend. A template whose placement area with the
-configured `blendWidth`, widened by that margin, would cover more than
-262,144 columns (512 × 512) is rejected when the world is created. A tree is
-removed as a complete connected tree when its trunk or canopy intersects the
-structure footprint, an actually modified blend column, or an explicit
-template cell. Trees that merely stand inside an unchanged part of the blend
-or observation area are preserved.
-
-A removed tree takes with it what rests on it or hangs from it: vines, cocoa,
-bee nests, the snow on its canopy, a giant mushroom's cap, and blocks other
-mods hang under trees. The ground its trunk stood on, which worldgen turns to
-dirt, takes the site's most common surface instead of staying a bare patch.
-In a cold biome the reshaped ring and every column tree cleanup clears get
-back the snow layer worldgen would have put there, except within reach of the
-structure's own light, where it would melt. A column holding any template
-cell, outside the footprint too, is left to the template's own snow pass
-described above, so no layer lands under a template overhang; with
-`adaptTemplateToSite = false` such a column gets none.
-
-If a complete interfering tree cannot be resolved inside the observation
-margin, the physical site is rejected before placement. All planned rotations
-at the same site center are discarded together before the next site is tried.
-This avoids sliced canopies, floating trunks, and repeated preparation of the
-same unsuitable location. Observation chunks are prepared up front; tree
-traversal never loads chunks dynamically.
-
-Generated terrain whose exact footprint or blend would exceed the configured
-cut/fill limits uses the same site-level retry before any world writes.
-`maximumPerimeterError` only takes part in choosing the site: once the terrain
-is generated, the edge of the footprint is held to the cut and fill limits like
-the rest of it, and the blend absorbs the step.
-
-The blend ring may go a little further than the footprint, since it only eases
-the land into the structure's level: a small pit next to the site, which the
-planner cannot see from the noise, gets filled instead of costing the site. By default each ring column may be cut or filled two blocks
-past `maximumCutDepth` and `maximumFillDepth`:
-
-```toml
-blendDepthAllowance = 2
-```
-
-Set it to `0` to hold the ring to the same limits as the footprint.
-
-The same preflight rejects a site when the complete template volume would
-intersect a generated vanilla, datapack, or modded structure registered with
-Minecraft. It also rejects terrain, vegetation, or whole-tree writes that
-would enter one of that structure's actual piece bounds. No extra proximity
-buffer is added. Arbitrary player builds and world-generation features that
-are not registered structures cannot be detected by this check.
-
-Some structures declare bounds far larger than what they place: Applied
-Energistics 2 declares each meteorite as a flat area of 144 × 144 blocks around
-a meteorite a few blocks wide, which would reject sites dozens of blocks away
-from it. A structure listed here never counts as a collision:
-
-```toml
-ignoredStructureCollisions = ["ae2:meteorite"]
-```
-
-The ground under the site is still judged like any other terrain, so a crater
-under the footprint is treated as the hole it is.
-
-A site whose planned terrain and template changes contradict each other, a
-bug in the mod rather than a property of the terrain, is skipped for the next
-one in the same way, before anything is written; the server log reports it as
-an error, in full, to be reported.
-
-If every planned candidate is rejected, singleplayer shows a blocking choice:
-`Delete World and Create New` deletes this world after a confirmation and
-opens Create New World, while `Continue Anyway` switches permanently to
-Minecraft's normal spawn without the starting structure (and restores the
-vanilla Bonus Chest choice when enabled). A dedicated server, which cannot
-show that choice, continues by itself as `Continue Anyway` does: the world
-loads without the structure at Minecraft's normal spawn, the log says so, and
-every player is told so in chat at their first login, with the advice to
-create a new world. Unexpected or potentially partial placement failures
-remain fail-closed.
-
-The deletion removes only the world-list entry whose folder is the running
-world's, and only once the integrated server has stopped and released the
-world, through the same call as the world list's Delete button. If the world
-cannot be identified or deleted, it stays on disk and the world list opens
-with a message saying it was not deleted.
-
-### Command alternative
-
-If the `Alt` shortcut is intercepted, the same marker can be created with
-commands. Replace `X Y Z` with the intended marker coordinates:
+If `Alt` doesn't work for you, use commands:
 
 ```mcfunction
 /setblock X Y Z minecraft:structure_block[mode=data]
 /data merge block X Y Z {mode:"DATA",metadata:"adaptive_starting_structure:spawn"}
 ```
 
-Use `adaptive_starting_structure:ground_level` for the second marker.
+The vanilla structure block saves at most 48 blocks per side. For anything
+bigger, use a tool that keeps block entity data, or the markers get lost.
 
-### Vanilla export-size warning
+## When no site fits
 
-The vanilla Structure Block interface is limited to 48 blocks per axis. Larger
-structures must be exported with a tool that preserves both block states and
-Block Entity NBT. A clipped export or a conversion that removes Structure
-Blocks will also remove these required markers.
+Every site is checked on the real generated terrain before anything is built,
+and the terrain of a rejected site is thrown away. If none of them pass:
 
-### How a site is chosen
+- in singleplayer you get a screen with **Delete World and Create New** or
+  **Continue Anyway**, which keeps the vanilla spawn without the structure;
+- a dedicated server carries on without the structure and tells each player
+  in chat.
 
-The search walks outward from the spawn the world would have used, on a square
-lattice, and considers the area inside `preferredSearchRadius` before anything
-beyond it. It stops as soon as it has enough usable sites, so a world with good
-ground near the vanilla spawn never pays for the full `maximumSearchRadius`.
+## Config
 
-`preferredSearchRadius` is therefore a preference, not just a sampling density:
-a site inside it wins over a flatter one outside it. `maximumSearchRadius` is
-how far the search is willing to go when the near area yields nothing, not how
-far it always looks.
+Everything is in `config/adaptive_starting_structure-common.toml`, and every
+key has a comment there. The ones you're most likely to change:
 
-Sites that may overlap a generated structure such as a village rank below
-sites that do not, but only among the positions evaluated together. The search
-takes each band, the area inside `preferredSearchRadius` and the area beyond
-it, in groups of 64 lattice positions starting from the nearest, and keeps the
-sites in the order the groups yield them: a site that may overlap a village in
-one group wins over a clean site in a later group of the same band. The overlap
-test is a placement check on the structure grid that generates no chunks, and
-it is deliberately conservative: it does not check whether the structure's own
-biome conditions would let it generate there, so it lowers a site's rank but
-never rejects it.
+| Key | Default | What it does |
+| --- | --- | --- |
+| `preferredSearchRadius` | `1024` | A site inside this radius beats any site farther out |
+| `maximumSearchRadius` | `4096` | How far from the original spawn the search can go |
+| `maximumCutDepth`, `maximumFillDepth` | `8` | How much ground can be dug out or filled under the structure |
+| `blendWidth` | `24` | Width of the slope between the structure and the land around it |
+| `ignoredStructureCollisions` | `["ae2:meteorite"]` | Structures whose oversized bounds shouldn't rule out a site |
+| `adaptTemplateToSite` | `true` | Swaps the template's grass and dirt for the local ground, like sand in a desert, and adds snow in cold biomes |
+| `placeTemplateEntities` | `false` | Places the entities saved in the template |
+| `placePlayerAtSpawnMarker` | `true` | Puts new players right on the spawn marker instead of on the roof. Turn it off if your pack handles spawning |
 
-Each place is put forward in its best allowed rotation. Its other rotations
-are tried only once the band has offered every place, and only if that place
-has not produced a usable site, so the alternatives kept for placement are
-always different places: when a site fails its final check, every rotation of
-it is discarded together. Rotations that leave the structure's footprint
-extent unchanged are judged together, and count once against
-`maximumCoarseCandidates`.
+The biome lists are edited with `additionalPreferredBiomes`,
+`additionalExcludedBiomes`, `removedPreferredBiomes`, `removedExcludedBiomes`
+and `excludedBiomeTags`.
 
-The search itself does not read the world seed. Positions come from the
-lattice, and the seed decides the terrain those positions are judged on.
+Settings that decide where the structure goes only affect worlds created after
+you change them.
 
-### A rejected site's terrain
+## A world that won't start
 
-A site is judged on its generated terrain, so its chunks are generated before
-the verdict, under that site's world spawn: mods that derive world generation
-from the spawn, such as distance-based ore gating, read it while the chunks
-generate. When a site is rejected, its terrain is thrown away before the spawn
-moves on, to the next site or, once none is left, to the vanilla spawn. Every
-Overworld chunk the server loaded while starting is unloaded without being
-saved, the entities that generated in it are removed, and it is cleared from
-the region files. Minecraft generates those chunks again, under the spawn the
-world ends up with, when something next needs them. The chunks vanilla keeps
-loaded around the spawn are generated only for the site that is kept, except
-those around the first site, which vanilla prepares before placement begins.
-Nothing needs configuring.
-
-The log reports each discard: its chunks, its entities and how long it took.
-A chunk that another mod keeps loaded with its own ticket cannot be discarded;
-the log counts such chunks, and they keep the terrain generated under the old
-spawn. If an earlier start of the same world stopped during placement and
-saved part of that terrain, its blocks are cleared like the rest, but the
-entities saved with it stay, and come back if those chunks are generated
-again; the log says so when it happens.
-
-### Radial Resource Gating
-
-Radial Resource Gating gates ores inside a ring around a center it reads from
-its own config, per dimension. With its overworld `centerMode = "world_spawn"`
-the ring follows the spawn this mod picks: the terrain discard above is what
-keeps every chunk generated under the final spawn. With `centerMode = "fixed"`
-the ring stays where the pack put it while the spawn can land up to
-`maximumSearchRadius` blocks away, outside the ring, where ores are not gated.
-Use `world_spawn` with this mod.
-
-When a world's structure is placed and the overworld gate has a fixed center,
-the singleplayer host and each operator get one chat warning per world naming
-the center, the ring's range and the world spawn; the server log records it
-too. A pack that wants the fixed center on purpose turns the warning off:
-
-```toml
-warnAboutFixedOreGateCenter = true
-```
-
-Set to `false`, neither the chat message nor its log line is produced.
-
-### Changing the configuration after a world is created
-
-A world is planned when it is created and built the first time it is loaded,
-and those can be two different sessions: create the world, return to the world
-list, change the configuration, then open it.
-
-The values that decided where the structure goes — `blendWidth`,
-`maximumCutDepth`, `maximumFillDepth`, `maximumElevationRange`,
-`maximumPerimeterError`, `maximumWaterFraction` and `allowedRotations` — are
-stored with the plan and reused when the structure is built, so a change made
-in between does not invalidate a finished plan. The server log reports when
-this happens. Change them before creating a world for them to take effect.
-Settings that play no part in choosing a site, such as
-`placeTemplateEntities`, `adaptTemplateToSite`, `ignoredStructureCollisions`
-and `blendDepthAllowance`, keep following the live configuration.
-
-If that first load fails before anything is written to the world, for example
-because the configuration file is invalid or the selected template is missing
-or has changed since the world was created, the start is refused but the world
-stays planned. It loads normally, and gets its structure, once the cause is
-fixed. A player who joined the refused session then arrives again where the
-game puts a new player, and on the spawn marker when `placePlayerAtSpawnMarker`
-is on, not where that session left them. If that later start rejects every
-site instead, they arrive where the game puts a new player around the vanilla
-spawn the world falls back to.
-
-### Recovering a world that refuses to start
-
-If the game dies while the structure is being built, or the save that follows
-cannot write the world spawn to `level.dat`, the saved state stays at
-`PLACING` or `FAILED` and every later start refuses to run, because the world
-may be half-modified. To load such a world anyway:
+If the game crashes while the structure is being built, the world might be
+half modified, so the mod refuses to load it. To load it anyway, as it is and
+without the structure:
 
 ```toml
 blockedStateRecovery = "skip"
 ```
 
-The starting structure is then given up on and the world loads as it is, which
-may leave partial terrain or structure changes from the interrupted attempt.
-The state is kept on disk, so setting the key back to `"block"` (the default)
-restores the refusal.
+The world stays flagged, so it refuses again if you switch back to `"block"`.
 
-A singleplayer world left waiting for its owner's decision, after every site
-was rejected, continues by itself when it is started on a dedicated server,
-which cannot show that choice, as that server's own worlds do: without the
-structure, at the vanilla spawn the decision saved.
+## Radial Resource Gating
 
-If the game dies while `Continue Anyway`, or a dedicated server's own
-continuation, is being applied, or the save that follows cannot write the
-world spawn to `level.dat`, the world refuses to start as a half-built one
-does. `blockedStateRecovery = "skip"` loads it with the vanilla spawn the
-decision saved; the bonus chest stays as the interrupted attempt left it,
-which may be partly placed or missing. A player who joined one of the refused
-sessions then arrives again where the game puts a new player around that
-spawn.
+Set the overworld `centerMode` to `"world_spawn"`, so the ore ring follows the
+spawn this mod picks. With `"fixed"` the ring stays where it is while the
+spawn can end up thousands of blocks away, and the host and operators get a
+warning in chat once per world. If the fixed center is what you want, turn the
+warning off:
 
-That spawn is set by the first start that loads the world this way and gets it
-written to `level.dat`; a start whose save cannot write it there says so in
-the log, and the next start sets it again. A spawn moved afterwards, with
-`/setworldspawn` or by another mod, is kept at later starts.
-
-A start refused because placement failed before anything was written needs no
-recovery: the log says nothing was written, and loading again once the cause
-is fixed builds the structure. With `blockedStateRecovery = "skip"` such a
-failure gives the structure up instead: it is marked failed, and the next
-start loads the world without it.
+```toml
+warnAboutFixedOreGateCenter = false
+```
