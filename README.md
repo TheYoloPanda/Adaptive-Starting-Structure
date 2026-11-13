@@ -411,6 +411,27 @@ saved part of that terrain, its blocks are cleared like the rest, but the
 entities saved with it stay, and come back if those chunks are generated
 again; the log says so when it happens.
 
+### Radial Resource Gating
+
+Radial Resource Gating gates ores inside a ring around a center it reads from
+its own config, per dimension. With its overworld `centerMode = "world_spawn"`
+the ring follows the spawn this mod picks: the terrain discard above is what
+keeps every chunk generated under the final spawn. With `centerMode = "fixed"`
+the ring stays where the pack put it while the spawn can land up to
+`maximumSearchRadius` blocks away, outside the ring, where ores are not gated.
+Use `world_spawn` with this mod.
+
+When a world's structure is placed and the overworld gate has a fixed center,
+the singleplayer host and each operator get one chat warning per world naming
+the center, the ring's range and the world spawn; the server log records it
+too. A pack that wants the fixed center on purpose turns the warning off:
+
+```toml
+warnAboutFixedOreGateCenter = true
+```
+
+Set to `false`, neither the chat message nor its log line is produced.
+
 ### Changing the configuration after a world is created
 
 A world is planned when it is created and built the first time it is loaded,
