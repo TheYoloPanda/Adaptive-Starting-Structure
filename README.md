@@ -52,7 +52,11 @@ bigger, use a tool that keeps block entity data, or the markers get lost.
 ## When no site fits
 
 Every site is checked on the real generated terrain before anything is built,
-and the terrain of a rejected site is thrown away. If none of them pass:
+and the terrain of a rejected site is thrown away. When every site found is
+rejected, the mod searches again, up to three times, staying clear of the land
+around the sites already rejected. Each extra search adds roughly 10 to 20
+seconds of loading, and only worlds whose first sites all fail pay for it.
+If still no site passes:
 
 - in singleplayer you get a screen with **Delete World and Create New** or
   **Continue Anyway**, which keeps the vanilla spawn without the structure;
