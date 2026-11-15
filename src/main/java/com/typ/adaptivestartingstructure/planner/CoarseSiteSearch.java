@@ -128,6 +128,58 @@ public final class CoarseSiteSearch {
                 config);
     }
 
+    /**
+     * The positions whose footprint, at the widest of the allowed rotations,
+     * keeps clear of every excluded area by the blend margin on both sides.
+     * The blend reshapes terrain out to that margin, so a site any closer
+     * would share ground with the area it is meant to avoid.
+     */
+    static List<LatticePosition> outside(
+            List<LatticePosition> positions,
+            List<ExcludedArea> excludedAreas,
+            BlockPos origin,
+            ConfigSnapshot config,
+            StructureDefinition structure) {
+        Objects.requireNonNull(positions, "positions");
+        Objects.requireNonNull(excludedAreas, "excludedAreas");
+        Objects.requireNonNull(origin, "origin");
+        if (excludedAreas.isEmpty()) {
+            return positions;
+        }
+        CandidateBounds widest = null;
+        for (List<RotatedStructureView> sameExtent
+                : footprintExtents(structure, config.allowedRotations())) {
+            CandidateBounds footprint =
+                    centeredBounds(0, 0, sameExtent.getFirst());
+            widest = widest == null ? footprint : new CandidateBounds(
+                    Math.min(widest.minimumX(), footprint.minimumX()),
+                    Math.max(widest.maximumX(), footprint.maximumX()),
+                    Math.min(widest.minimumZ(), footprint.minimumZ()),
+                    Math.max(widest.maximumZ(), footprint.maximumZ()));
+        }
+        List<LatticePosition> kept = new ArrayList<>(positions.size());
+        for (LatticePosition position : positions) {
+            long centerX = (long) origin.getX() + position.offsetX();
+            long centerZ = (long) origin.getZ() + position.offsetZ();
+            boolean excluded = false;
+            for (ExcludedArea area : excludedAreas) {
+                if (area.overlaps(
+                        centerX + widest.minimumX(),
+                        centerX + widest.maximumX(),
+                        centerZ + widest.minimumZ(),
+                        centerZ + widest.maximumZ(),
+                        config.blendWidth())) {
+                    excluded = true;
+                    break;
+                }
+            }
+            if (!excluded) {
+                kept.add(position);
+            }
+        }
+        return kept;
+    }
+
     private static int positionBudget(
             ConfigSnapshot config,
             int footprintExtents,

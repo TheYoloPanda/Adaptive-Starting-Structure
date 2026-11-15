@@ -72,13 +72,29 @@ public final class SitePlanner {
             PlannerQueryContext queries,
             StructureDefinition structure,
             GameRules gameRules) {
+        return plan(seed, config, queries, structure, gameRules, List.of());
+    }
+
+    /**
+     * Plans as usual, except that no site comes within the blend margin of
+     * the excluded areas: ground already found unusable there would only be
+     * rejected again.
+     */
+    public static SitePlanningResult plan(
+            long seed,
+            ConfigSnapshot config,
+            PlannerQueryContext queries,
+            StructureDefinition structure,
+            GameRules gameRules,
+            List<ExcludedArea> excludedAreas) {
         Objects.requireNonNull(gameRules, "gameRules");
-        return plan(
+        return planLogged(
                 seed,
                 config,
                 queries,
                 structure,
-                gameRules.getInt(GameRules.RULE_SPAWN_RADIUS));
+                gameRules.getInt(GameRules.RULE_SPAWN_RADIUS),
+                excludedAreas);
     }
 
     public static SitePlanningResult plan(
@@ -87,12 +103,29 @@ public final class SitePlanner {
             PlannerQueryContext queries,
             StructureDefinition structure,
             int configuredSpawnRadius) {
+        return planLogged(
+                seed,
+                config,
+                queries,
+                structure,
+                configuredSpawnRadius,
+                List.of());
+    }
+
+    private static SitePlanningResult planLogged(
+            long seed,
+            ConfigSnapshot config,
+            PlannerQueryContext queries,
+            StructureDefinition structure,
+            int configuredSpawnRadius,
+            List<ExcludedArea> excludedAreas) {
         return plan(
                 seed,
                 config,
                 queries,
                 structure,
                 configuredSpawnRadius,
+                excludedAreas,
                 System::nanoTime,
                 elapsedNanos -> AdaptiveStartingStructure.LOGGER.warn(
                         "Starting-structure site planning took {} ms and {} generator queries",
@@ -130,7 +163,30 @@ public final class SitePlanner {
             LongSupplier nanoTime,
             LongConsumer slowWarning,
             Consumer<String> telemetry) {
+        return plan(
+                seed,
+                config,
+                queries,
+                structure,
+                configuredSpawnRadius,
+                List.of(),
+                nanoTime,
+                slowWarning,
+                telemetry);
+    }
+
+    static SitePlanningResult plan(
+            long seed,
+            ConfigSnapshot config,
+            PlannerQueryContext queries,
+            StructureDefinition structure,
+            int configuredSpawnRadius,
+            List<ExcludedArea> excludedAreas,
+            LongSupplier nanoTime,
+            LongConsumer slowWarning,
+            Consumer<String> telemetry) {
         Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(excludedAreas, "excludedAreas");
         Objects.requireNonNull(queries, "queries");
         Objects.requireNonNull(structure, "structure");
         Objects.requireNonNull(nanoTime, "nanoTime");
@@ -151,6 +207,7 @@ public final class SitePlanner {
                     queries,
                     structure,
                     configuredSpawnRadius,
+                    List.copyOf(excludedAreas),
                     measurements);
             acceptedSites = result.candidates().size();
             return result;
@@ -188,6 +245,7 @@ public final class SitePlanner {
             PlannerQueryContext queries,
             StructureDefinition structure,
             int configuredSpawnRadius,
+            List<ExcludedArea> excludedAreas,
             PlanningTelemetry measurements) {
         int budget = config.maximumGeneratorQueries();
         Finalists finalists = new Finalists(
@@ -196,7 +254,12 @@ public final class SitePlanner {
                 structure,
                 configuredSpawnRadius,
                 measurements);
-        CoarseSearchResult coarseResult = null;
+        /*
+         * Starts empty rather than unset: with excluded areas a band can have
+         * no position left to search, and every band none at all.
+         */
+        CoarseSearchResult coarseResult =
+                new CoarseSearchResult(List.of(), 0, 0, Map.of());
 
         /*
          * Nearest first, a slice of positions at a time, stopping as soon as
@@ -224,8 +287,14 @@ public final class SitePlanner {
              * first few places without reaching the rest.
              */
             List<CoarseCandidate> heldBack = new ArrayList<>();
+            /* Dropped before the search, so an excluded position costs no query. */
             List<CoarseSiteSearch.LatticePosition> positions =
-                    CoarseSiteSearch.bandPositions(config, structure, band);
+                    CoarseSiteSearch.outside(
+                            CoarseSiteSearch.bandPositions(config, structure, band),
+                            excludedAreas,
+                            queries.suggestedSpawnOrigin(),
+                            config,
+                            structure);
             for (int from = 0; from < positions.size(); from += COARSE_SLICE) {
                 List<CoarseSiteSearch.LatticePosition> slice = positions.subList(
                         from,
@@ -240,9 +309,7 @@ public final class SitePlanner {
                         band,
                         slice);
                 measurements.end("coarse");
-                coarseResult = coarseResult == null
-                        ? sliceCoarse
-                        : coarseResult.merge(sliceCoarse);
+                coarseResult = coarseResult.merge(sliceCoarse);
                 sliceCoarse.budgetFailure().ifPresent(
                         failure -> finalists.interrupt("coarse", failure));
 
@@ -393,7 +460,8 @@ public final class SitePlanner {
                 new EnumMap<>(SpawnRejectionReason.class);
         private final List<SiteCandidate> sites = new ArrayList<>();
         private final Set<Long> sitePlaces = new HashSet<>();
-        private FineSearchResult fineResult;
+        private FineSearchResult fineResult =
+                new FineSearchResult(List.of(), List.of());
         private int spawnValidationCount;
         private int spawnRejectedCandidateCount;
         private BudgetInterruption interruption;
@@ -433,9 +501,7 @@ public final class SitePlanner {
                     finalistBudget,
                     explicitAir);
             measurements.end("fine");
-            fineResult = fineResult == null
-                    ? fine
-                    : fineResult.merge(fine);
+            fineResult = fineResult.merge(fine);
             fine.budgetFailure().ifPresent(
                     failure -> interrupt("fine", failure));
 
