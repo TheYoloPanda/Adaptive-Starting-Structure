@@ -1,17 +1,23 @@
 package com.typ.adaptivestartingstructure.persistence;
 
+import com.typ.adaptivestartingstructure.planner.ExcludedArea;
+import com.typ.adaptivestartingstructure.planner.SiteCandidate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.IntArrayTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.level.saveddata.SavedData;
 
 public final class StartingStructureSavedData extends SavedData {
     public static final String DATA_NAME = "adaptive_starting_structure";
-    public static final int CURRENT_SCHEMA_VERSION = 3;
+    public static final int CURRENT_SCHEMA_VERSION = 4;
     public static final SavedData.Factory<StartingStructureSavedData> FACTORY =
             new SavedData.Factory<>(
                     StartingStructureSavedData::rejectImplicitCreation,
@@ -27,12 +33,17 @@ public final class StartingStructureSavedData extends SavedData {
             "GenerateBonusChest";
     private static final String RECOVERY_SPAWN_APPLIED =
             "RecoverySpawnApplied";
+    private static final String REJECTED_AREAS = "RejectedAreas";
+    private static final String SEARCH_PASSES = "SearchPasses";
+    private static final int FIRST_SCHEMA_WITH_SEARCH_PASSES = 4;
 
     private StartingStructurePlan plan;
     private State state;
     private String lastError;
     private FallbackDecision fallbackDecision;
     private boolean recoverySpawnApplied;
+    private List<ExcludedArea> rejectedAreas;
+    private int searchPasses;
 
     private StartingStructureSavedData(
             StartingStructurePlan plan,
@@ -40,7 +51,13 @@ public final class StartingStructureSavedData extends SavedData {
             String lastError,
             FallbackDecision fallbackDecision,
             boolean recoverySpawnApplied,
+            List<ExcludedArea> rejectedAreas,
+            int searchPasses,
             boolean dirty) {
+        if (searchPasses < 0) {
+            throw new IllegalArgumentException(
+                    "searchPasses must not be negative");
+        }
         this.plan = Objects.requireNonNull(plan, "plan");
         this.state = Objects.requireNonNull(state, "state");
         this.lastError = validateError(
@@ -52,6 +69,8 @@ public final class StartingStructureSavedData extends SavedData {
                 fallbackDecision,
                 this.lastError);
         this.recoverySpawnApplied = recoverySpawnApplied;
+        this.rejectedAreas = List.copyOf(rejectedAreas);
+        this.searchPasses = searchPasses;
         setDirty(dirty);
     }
 
@@ -63,6 +82,8 @@ public final class StartingStructureSavedData extends SavedData {
                 null,
                 null,
                 false,
+                List.of(),
+                0,
                 true);
     }
 
@@ -84,6 +105,16 @@ public final class StartingStructureSavedData extends SavedData {
 
     public boolean recoverySpawnApplied() {
         return recoverySpawnApplied;
+    }
+
+    /** Where sites were rejected on the generated terrain, oldest first. */
+    public List<ExcludedArea> rejectedAreas() {
+        return rejectedAreas;
+    }
+
+    /** How many searches have replaced the plan since the world was created. */
+    public int searchPasses() {
+        return searchPasses;
     }
 
     public void markPlacing() {
@@ -140,11 +171,17 @@ public final class StartingStructureSavedData extends SavedData {
         setDirty();
     }
 
+    /**
+     * Gives up the current site and every rotation of it, recording its area
+     * as rejected. The area is recorded for the last site too, since a search
+     * for further sites follows exactly then and has to avoid it.
+     */
     public OptionalInt advancePastCurrentSite() {
         if (state != State.PLANNED) {
             throw new IllegalStateException(
                     "Site retry requires PLANNED state");
         }
+        recordRejected(plan.candidate());
         Optional<StartingStructurePlan.SiteAdvance> advance =
                 plan.advancePastCurrentSite();
         if (advance.isEmpty()) {
@@ -155,6 +192,48 @@ public final class StartingStructureSavedData extends SavedData {
         plan = result.plan();
         setDirty();
         return OptionalInt.of(result.discardedCandidates());
+    }
+
+    /**
+     * Replaces a plan whose sites were all rejected with the result of
+     * another search, and counts the search.
+     *
+     * <p>Only the sites may change. The structure, the seed that chose it and
+     * the settings it was planned under are what the world was given at
+     * creation, and a search planned under anything else would place a
+     * different structure, or the same one differently.
+     */
+    public void replacePlanFromSearch(StartingStructurePlan searched) {
+        Objects.requireNonNull(searched, "searched");
+        if (state != State.PLANNED) {
+            throw new IllegalStateException(
+                    "Replacing the plan requires PLANNED state");
+        }
+        if (searched.selectionSeed() != plan.selectionSeed()
+                || searched.selectionSalt() != plan.selectionSalt()
+                || !searched.candidate().structureId().equals(
+                        plan.candidate().structureId())
+                || !searched.candidate().structureSha256().equals(
+                        plan.candidate().structureSha256())
+                || !searched.placementSettings().equals(
+                        plan.placementSettings())) {
+            throw new IllegalArgumentException(
+                    "A searched plan must keep the structure, selection and settings of the current one");
+        }
+        plan = searched;
+        searchPasses = Math.addExact(searchPasses, 1);
+        setDirty();
+    }
+
+    private void recordRejected(SiteCandidate site) {
+        ExcludedArea area = ExcludedArea.covering(site.structureBounds());
+        if (rejectedAreas.contains(area)) {
+            return;
+        }
+        List<ExcludedArea> recorded = new ArrayList<>(rejectedAreas);
+        recorded.add(area);
+        rejectedAreas = List.copyOf(recorded);
+        setDirty();
     }
 
     @Override
@@ -181,6 +260,16 @@ public final class StartingStructureSavedData extends SavedData {
             }
             tag.put(FALLBACK, fallback);
         }
+        ListTag areas = new ListTag();
+        for (ExcludedArea area : rejectedAreas) {
+            areas.add(new IntArrayTag(new int[] {
+                    area.minimumX(),
+                    area.maximumX(),
+                    area.minimumZ(),
+                    area.maximumZ()}));
+        }
+        tag.put(REJECTED_AREAS, areas);
+        tag.putInt(SEARCH_PASSES, searchPasses);
         return tag;
     }
 
@@ -201,6 +290,8 @@ public final class StartingStructureSavedData extends SavedData {
                         decision.originalError(),
                         decision,
                         false,
+                        rejectedAreas,
+                        searchPasses,
                         false);
         return next.save(tag, registries);
     }
@@ -292,6 +383,13 @@ public final class StartingStructureSavedData extends SavedData {
                         RECOVERY_SPAWN_APPLIED);
             }
         }
+        List<ExcludedArea> rejectedAreas = List.of();
+        int searchPasses = 0;
+        if (schemaVersion >= FIRST_SCHEMA_WITH_SEARCH_PASSES) {
+            rejectedAreas = loadRejectedAreas(tag);
+            requireType(tag, SEARCH_PASSES, Tag.TAG_INT);
+            searchPasses = tag.getInt(SEARCH_PASSES);
+        }
         try {
             return new StartingStructureSavedData(
                     plan,
@@ -299,6 +397,8 @@ public final class StartingStructureSavedData extends SavedData {
                     lastError,
                     fallbackDecision,
                     recoverySpawnApplied,
+                    rejectedAreas,
+                    searchPasses,
                     false);
         } catch (IllegalArgumentException exception) {
             throw new StartingStructureDataException(
@@ -306,6 +406,34 @@ public final class StartingStructureSavedData extends SavedData {
                             + exception.getMessage(),
                     exception);
         }
+    }
+
+    private static List<ExcludedArea> loadRejectedAreas(CompoundTag tag) {
+        requireType(tag, REJECTED_AREAS, Tag.TAG_LIST);
+        ListTag areas = (ListTag) tag.get(REJECTED_AREAS);
+        if (!areas.isEmpty()
+                && areas.getElementType() != Tag.TAG_INT_ARRAY) {
+            throw new StartingStructureDataException(
+                    "Persisted rejected areas have the wrong NBT type");
+        }
+        List<ExcludedArea> loaded = new ArrayList<>(areas.size());
+        for (int index = 0; index < areas.size(); index++) {
+            int[] bounds = areas.getIntArray(index);
+            if (bounds.length != 4) {
+                throw new StartingStructureDataException(
+                        "A persisted rejected area must contain exactly four coordinates");
+            }
+            try {
+                loaded.add(new ExcludedArea(
+                        bounds[0], bounds[1], bounds[2], bounds[3]));
+            } catch (IllegalArgumentException exception) {
+                throw new StartingStructureDataException(
+                        "Invalid persisted rejected area: "
+                                + exception.getMessage(),
+                        exception);
+            }
+        }
+        return loaded;
     }
 
     private void transition(
