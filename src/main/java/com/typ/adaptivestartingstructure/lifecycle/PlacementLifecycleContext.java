@@ -6,6 +6,7 @@ import com.typ.adaptivestartingstructure.persistence.FallbackDecision;
 import com.typ.adaptivestartingstructure.persistence.StartingStructureSavedData;
 import com.typ.adaptivestartingstructure.placement.WorldFinalizationMetrics;
 import com.typ.adaptivestartingstructure.planner.SiteCandidate;
+import com.typ.adaptivestartingstructure.planner.SitePlanningResult;
 import java.util.Optional;
 import net.minecraft.core.BlockPos;
 
@@ -38,6 +39,15 @@ interface PlacementLifecycleContext {
      * generated under the current one when the two differ.
      */
     void relocateSpawn(BlockPos spawn) throws Exception;
+
+    /**
+     * Searches for further sites of the planned structure, under the given
+     * configuration, away from the data's rejected areas. Empty when the
+     * search finds no site or spends its query budget.
+     */
+    Optional<SitePlanningResult> searchFurther(
+            StartingStructureSavedData data,
+            ConfigSnapshot config) throws Exception;
 
     void persistState(StartingStructureSavedData data)
             throws Exception;
@@ -89,6 +99,14 @@ interface PlacementLifecycleContext {
             String reason);
 
     void logLastCandidateRejected(SiteCandidate rejected, String reason);
+
+    void logSearchPass(
+            int pass,
+            int maximumPasses,
+            int rejectedAreas,
+            int sitesFound);
+
+    void logSearchFailed(int pass, Exception failure);
 
     void logInternalInconsistency(SiteCandidate site, Exception failure);
 

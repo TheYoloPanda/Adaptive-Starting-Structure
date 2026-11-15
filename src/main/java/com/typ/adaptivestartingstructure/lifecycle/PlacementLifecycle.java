@@ -25,7 +25,12 @@ import com.typ.adaptivestartingstructure.placement.TrialTerrainDiscardResult;
 import com.typ.adaptivestartingstructure.placement.UnsuitableGeneratedSiteException;
 import com.typ.adaptivestartingstructure.placement.WorldFinalization;
 import com.typ.adaptivestartingstructure.placement.WorldFinalizationMetrics;
+import com.typ.adaptivestartingstructure.planner.GeneratorQueryBudgetExceededException;
+import com.typ.adaptivestartingstructure.planner.PlannerQueryContext;
 import com.typ.adaptivestartingstructure.planner.SiteCandidate;
+import com.typ.adaptivestartingstructure.planner.SitePlanner;
+import com.typ.adaptivestartingstructure.planner.SitePlanningException;
+import com.typ.adaptivestartingstructure.planner.SitePlanningResult;
 import com.typ.adaptivestartingstructure.structure.StructureDefinition;
 import java.util.Objects;
 import java.util.Optional;
@@ -38,6 +43,7 @@ import net.neoforged.neoforge.event.server.ServerStartingEvent;
 
 public final class PlacementLifecycle {
     static final int MAX_PERSISTED_ERROR_LENGTH = 2_048;
+    static final int MAX_EXTRA_SEARCH_PASSES = 3;
 
     private PlacementLifecycle() {
     }
@@ -344,6 +350,13 @@ public final class PlacementLifecycle {
                     context.logLastCandidateRejected(
                             rejected,
                             failure.getMessage());
+                    if (replacePlanBySearch(
+                            context,
+                            data,
+                            config,
+                            failure)) {
+                        continue;
+                    }
                     FallbackDecision decision;
                     try {
                         decision =
@@ -412,6 +425,69 @@ public final class PlacementLifecycle {
                 throw failure;
             }
         }
+    }
+
+    /**
+     * Replaces a plan whose every site was rejected with the sites of a
+     * further search, and says whether it did. Planning at world creation
+     * stops after a few sites, so the worlds whose first site holds pay for
+     * no more; the few whose sites all fail on the generated terrain search
+     * again here rather than lose the structure. Each pass costs about a
+     * planning's time in loading, hence the bound, and the pass count is
+     * saved with the plan so that a restart grants no more passes.
+     */
+    private static boolean replacePlanBySearch(
+            PlacementLifecycleContext context,
+            StartingStructureSavedData data,
+            ConfigSnapshot config,
+            UnsuitableGeneratedSiteException rejection) throws Exception {
+        if (data.searchPasses() >= MAX_EXTRA_SEARCH_PASSES) {
+            return false;
+        }
+        int pass = data.searchPasses() + 1;
+        StartingStructurePlan current = data.plan();
+        try {
+            Optional<SitePlanningResult> found =
+                    context.searchFurther(data, config);
+            if (found.isEmpty()) {
+                context.logSearchPass(
+                        pass,
+                        MAX_EXTRA_SEARCH_PASSES,
+                        data.rejectedAreas().size(),
+                        0);
+                return false;
+            }
+            SitePlanningResult result = found.get();
+            data.replacePlanFromSearch(new StartingStructurePlan(
+                    current.selectionSeed(),
+                    current.selectionSalt(),
+                    current.selectionAlgorithmVersion(),
+                    result.selectedCandidate(),
+                    result.alternativeCandidates(),
+                    result.diagnostics(),
+                    current.placementSettings()));
+        } catch (Exception searchFailure) {
+            /*
+             * Nothing was written yet, and the fallback that follows is what
+             * the world would have had without the search; refusing to start
+             * instead would leave a failing search blocking every start.
+             */
+            context.logSearchFailed(pass, searchFailure);
+            return false;
+        }
+        try {
+            context.persistState(data);
+        } catch (Exception persistenceFailure) {
+            persistenceFailure.addSuppressed(rejection);
+            keepPlannedOrFail(context, data, persistenceFailure);
+            throw persistenceFailure;
+        }
+        context.logSearchPass(
+                pass,
+                MAX_EXTRA_SEARCH_PASSES,
+                data.rejectedAreas().size(),
+                data.plan().candidates().size());
+        return true;
     }
 
     private static void transitionAndPersist(
@@ -829,6 +905,28 @@ public final class PlacementLifecycle {
         }
 
         @Override
+        public Optional<SitePlanningResult> searchFurther(
+                StartingStructureSavedData data,
+                ConfigSnapshot config) throws Exception {
+            StructureDefinition structure = selectedDefinition(data);
+            try {
+                return Optional.of(SitePlanner.plan(
+                        data.plan().selectionSeed(),
+                        config,
+                        PlannerQueryContext.create(level, config),
+                        structure,
+                        level.getGameRules(),
+                        data.rejectedAreas()));
+            } catch (SitePlanningException
+                    | GeneratorQueryBudgetExceededException noSite) {
+                AdaptiveStartingStructure.LOGGER.warn(
+                        "The search for further starting-structure sites ended without one: {}",
+                        noSite.getMessage());
+                return Optional.empty();
+            }
+        }
+
+        @Override
         public void persistState(
                 StartingStructureSavedData data) throws Exception {
             StartingStructureStorage.persistCurrent(level, data);
@@ -1000,6 +1098,40 @@ public final class PlacementLifecycle {
                     rejected.placementOrigin(),
                     rejected.rotation(),
                     reason);
+        }
+
+        @Override
+        public void logSearchPass(
+                int pass,
+                int maximumPasses,
+                int rejectedAreas,
+                int sitesFound) {
+            if (sitesFound == 0) {
+                AdaptiveStartingStructure.LOGGER.warn(
+                        "Search {} of {} for further starting-structure sites, away from {} rejected site "
+                                + "area(s), found none.",
+                        pass,
+                        maximumPasses,
+                        rejectedAreas);
+                return;
+            }
+            AdaptiveStartingStructure.LOGGER.info(
+                    "Search {} of {} for further starting-structure sites, away from {} rejected site "
+                            + "area(s), found {} candidate(s); trying the nearest.",
+                    pass,
+                    maximumPasses,
+                    rejectedAreas,
+                    sitesFound);
+        }
+
+        @Override
+        public void logSearchFailed(int pass, Exception failure) {
+            AdaptiveStartingStructure.LOGGER.error(
+                    "Search {} of {} for further starting-structure sites failed; "
+                            + "the world goes on as when no site remains.",
+                    pass,
+                    MAX_EXTRA_SEARCH_PASSES,
+                    failure);
         }
 
         @Override
